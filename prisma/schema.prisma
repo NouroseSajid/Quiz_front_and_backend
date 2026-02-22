@@ -1,0 +1,97 @@
+// This is your Prisma schema file for The Vibe Check game
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Game {
+  id        String @id @default(cuid())
+  code      String @unique // "FUN42"
+  status    String // LOBBY, ACTIVE, PAUSED, FINISHED
+  settings  Json?  // Time limits, point multipliers, etc.
+  createdAt DateTime @default(now())
+
+  players Player[]
+  rounds  Round[]
+}
+
+model Player {
+  id       String @id @default(cuid())
+  name     String
+  gameId   String
+  game     Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  score    Int    @default(0)
+  isHost   Boolean @default(false)
+  isActive Boolean @default(true)
+
+  answers    Answer[]
+  votes      Vote[]      @relation("voter")
+  targetVotes Vote[]      @relation("target")
+  createdAt  DateTime @default(now())
+
+  @@unique([gameId, name]) // No duplicate names in game
+}
+
+model Round {
+  id          String @id @default(cuid())
+  gameId      String
+  game        Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  roundNumber Int
+  category    String // "Precision", "Knowledge", "Chaos", "Social"
+  status      String // ACTIVE, COMPLETE
+  createdAt   DateTime @default(now())
+
+  questions Question[]
+}
+
+model Question {
+  id            String @id @default(cuid())
+  roundId       String
+  round         Round  @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  type          String // MULTIPLE_CHOICE, RANGE, GEO, TEXT_EXACT, TEXT_CLOSE, TASK, CONSENSUS, RANKING, HIDDEN_REVEAL, BUZZER
+  text          String
+  media         String? // URL to image/sound
+  correct       Json? // Structure depends on type
+  metadata      Json? // min/max, tolerance, options, etc.
+  pointsMax     Int    @default(1000)
+  timeLimit     Int    @default(30) // seconds
+  questionIndex Int    @default(0) // Order in round
+
+  answers Answer[]
+  createdAt DateTime @default(now())
+
+  @@unique([roundId, questionIndex])
+}
+
+model Answer {
+  id           String @id @default(cuid())
+  questionId   String
+  question     Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  playerId     String
+  player       Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  submitted    Json? // Player's answer
+  timeMs       Int    @default(0) // Time taken in milliseconds
+  pointsEarned Int    @default(0)
+  accuracy     Float  @default(0) // 0-1
+  createdAt    DateTime @default(now())
+
+  @@unique([questionId, playerId]) // One answer per player per question
+}
+
+model Vote {
+  id        String @id @default(cuid())
+  roundId   String
+  voterId   String
+  voter     Player @relation("voter", fields: [voterId], references: [id], onDelete: Cascade)
+  targetId  String
+  target    Player @relation("target", fields: [targetId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([roundId, voterId])
+  @@index([roundId])
+}
