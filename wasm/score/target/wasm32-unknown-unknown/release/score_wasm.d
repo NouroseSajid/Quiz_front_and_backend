@@ -1,0 +1,1 @@
+C:\Users\Nouro\Desktop\coding_projects\quiz_back_and_frontend\wasm\score\target\wasm32-unknown-unknown\release\score_wasm.wasm: C:\Users\Nouro\Desktop\coding_projects\quiz_back_and_frontend\wasm\score\src\lib.rs

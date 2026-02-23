@@ -10,37 +10,41 @@ datasource db {
 }
 
 model Game {
-  id        String @id @default(cuid())
-  code      String @unique // "FUN42"
+  id        String   @id @default(cuid())
+  code      String   @unique // "FUN42"
   status    String // LOBBY, ACTIVE, PAUSED, FINISHED
-  settings  Json?  // Time limits, point multipliers, etc.
+  settings  Json? // Time limits, point multipliers, etc.
   createdAt DateTime @default(now())
 
-  players Player[]
-  rounds  Round[]
+  players      Player[]
+  rounds       Round[]
+  session      Session?
+  stateBackups GameStateBackup[]
 }
 
 model Player {
-  id       String @id @default(cuid())
+  id       String  @id @default(cuid())
   name     String
   gameId   String
-  game     Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
-  score    Int    @default(0)
+  game     Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  score    Int     @default(0)
   isHost   Boolean @default(false)
   isActive Boolean @default(true)
+  authSalt String?
+  authHash String?
 
-  answers    Answer[]
-  votes      Vote[]      @relation("voter")
-  targetVotes Vote[]      @relation("target")
-  createdAt  DateTime @default(now())
+  answers     Answer[]
+  votes       Vote[]   @relation("voter")
+  targetVotes Vote[]   @relation("target")
+  createdAt   DateTime @default(now())
 
   @@unique([gameId, name]) // No duplicate names in game
 }
 
 model Round {
-  id          String @id @default(cuid())
+  id          String   @id @default(cuid())
   gameId      String
-  game        Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  game        Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
   roundNumber Int
   category    String // "Precision", "Knowledge", "Chaos", "Social"
   status      String // ACTIVE, COMPLETE
@@ -50,48 +54,80 @@ model Round {
 }
 
 model Question {
-  id            String @id @default(cuid())
+  id            String  @id @default(cuid())
   roundId       String
-  round         Round  @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  round         Round   @relation(fields: [roundId], references: [id], onDelete: Cascade)
   type          String // MULTIPLE_CHOICE, RANGE, GEO, TEXT_EXACT, TEXT_CLOSE, TASK, CONSENSUS, RANKING, HIDDEN_REVEAL, BUZZER
   text          String
   media         String? // URL to image/sound
   correct       Json? // Structure depends on type
   metadata      Json? // min/max, tolerance, options, etc.
-  pointsMax     Int    @default(1000)
-  timeLimit     Int    @default(30) // seconds
-  questionIndex Int    @default(0) // Order in round
+  pointsMax     Int     @default(1000)
+  timeLimit     Int     @default(30) // seconds
+  questionIndex Int     @default(0) // Order in round
 
-  answers Answer[]
+  answers   Answer[]
   createdAt DateTime @default(now())
 
   @@unique([roundId, questionIndex])
 }
 
 model Answer {
-  id           String @id @default(cuid())
+  id           String   @id @default(cuid())
   questionId   String
   question     Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
   playerId     String
-  player       Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  player       Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
   submitted    Json? // Player's answer
-  timeMs       Int    @default(0) // Time taken in milliseconds
-  pointsEarned Int    @default(0)
-  accuracy     Float  @default(0) // 0-1
+  timeMs       Int      @default(0) // Time taken in milliseconds
+  pointsEarned Int      @default(0)
+  accuracy     Float    @default(0) // 0-1
   createdAt    DateTime @default(now())
 
   @@unique([questionId, playerId]) // One answer per player per question
 }
 
 model Vote {
-  id        String @id @default(cuid())
+  id        String   @id @default(cuid())
   roundId   String
   voterId   String
-  voter     Player @relation("voter", fields: [voterId], references: [id], onDelete: Cascade)
+  voter     Player   @relation("voter", fields: [voterId], references: [id], onDelete: Cascade)
   targetId  String
-  target    Player @relation("target", fields: [targetId], references: [id], onDelete: Cascade)
+  target    Player   @relation("target", fields: [targetId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 
   @@unique([roundId, voterId])
   @@index([roundId])
+}
+
+// Session tracking for lobbies and active games
+model Session {
+  id        String   @id @default(cuid())
+  gameId    String   @unique
+  game      Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  hostId    String
+  status    String // LOBBY, PLAYING, PAUSED, COMPLETED
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime // Session timeout for auto-cleanup
+
+  @@index([gameId])
+  @@index([hostId])
+  @@index([isActive])
+}
+
+// Encrypted backup of game state for crash recovery
+model GameStateBackup {
+  id         String   @id @default(cuid())
+  gameId     String
+  game       Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  state      Json // Serialized game state (questions, answers, scores, current question index)
+  checkpoint String // LOBBY, ROUND_START, QUESTION_ACTIVE, QUESTION_RESULTS, ROUND_RESULTS, GAME_END
+  version    Int      @default(1) // Version number for state schema
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([gameId])
+  @@index([createdAt])
 }

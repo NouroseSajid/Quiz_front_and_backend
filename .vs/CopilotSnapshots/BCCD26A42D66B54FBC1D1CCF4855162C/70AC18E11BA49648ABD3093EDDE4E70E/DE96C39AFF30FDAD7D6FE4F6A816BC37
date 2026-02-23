@@ -1,0 +1,11 @@
+﻿// simple accuracy calculation in Rust for WebAssembly
+// compile with `wasm-pack build --target web` from the wasm/score folder
+
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub fn compute_accuracy(error: f64, tolerance: f64) -> f64 {
+    // exponential decay formula
+    let x = error / tolerance;
+    f64::exp(-x)
+}

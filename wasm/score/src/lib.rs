@@ -1,0 +1,315 @@
+// Quiz Scoring Engine - WebAssembly Module
+// Complete implementation for multiplayer quiz game
+// Compile: wasm-pack build --target web --release
+
+use wasm_bindgen::prelude::*;
+use std::collections::HashMap;
+
+const EARTH_RADIUS_KM: f64 = 6371.0;
+
+// ========== ACCURACY CALCULATIONS ==========
+
+#[wasm_bindgen]
+pub fn compute_accuracy(error: f64, tolerance: f64) -> f64 {
+    let x = error / tolerance;
+    f64::exp(-x)
+}
+
+// ========== TIME BONUS ==========
+
+#[wasm_bindgen]
+pub fn compute_time_multiplier(time_taken: f64, time_limit: f64) -> f64 {
+    if time_taken >= time_limit {
+        return 1.0;
+    }
+    let time_remaining = time_limit - time_taken;
+    let time_ratio = time_remaining / time_limit;
+    1.0 + time_ratio // Range: 1.0 (slow) to 2.0 (instant)
+}
+
+// ========== FINAL SCORE ==========
+
+#[wasm_bindgen]
+pub fn calculate_final_score(
+    base_points: f64,
+    accuracy: f64,
+    time_multiplier: f64,
+    confidence_multiplier: f64,
+) -> f64 {
+    base_points * accuracy * time_multiplier * confidence_multiplier
+}
+
+// ========== GEOGUESSR DISTANCE ==========
+
+#[wasm_bindgen]
+pub fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    let d_lat = (lat2 - lat1).to_radians();
+    let d_lon = (lon2 - lon1).to_radians();
+    
+    let lat1_rad = lat1.to_radians();
+    let lat2_rad = lat2.to_radians();
+    
+    let a = (d_lat / 2.0).sin().powi(2)
+        + lat1_rad.cos() * lat2_rad.cos() * (d_lon / 2.0).sin().powi(2);
+    
+    let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
+    
+    EARTH_RADIUS_KM * c
+}
+
+#[wasm_bindgen]
+pub fn compute_geo_accuracy(distance_km: f64, scope_radius: f64) -> f64 {
+    let error = distance_km / scope_radius;
+    let tolerance = 0.3; // Standard geo tolerance
+    f64::exp(-error / tolerance)
+}
+
+#[wasm_bindgen]
+pub fn calculate_geo_score(
+    player_lat: f64,
+    player_lon: f64,
+    correct_lat: f64,
+    correct_lon: f64,
+    scope_radius_km: f64,
+    base_points: f64,
+    time_taken: f64,
+    time_limit: f64,
+) -> f64 {
+    let distance = haversine_distance(player_lat, player_lon, correct_lat, correct_lon);
+    let accuracy = compute_geo_accuracy(distance, scope_radius_km);
+    let time_mult = compute_time_multiplier(time_taken, time_limit);
+    
+    base_points * accuracy * time_mult
+}
+
+// ========== RANKING ERROR ==========
+
+#[wasm_bindgen]
+pub fn ranking_error(submitted: Vec<u32>, correct: Vec<u32>) -> f64 {
+    if submitted.len() != correct.len() || submitted.is_empty() {
+        return 1.0; // Maximum error
+    }
+    
+    let n = submitted.len();
+    let mut inversions = 0;
+    
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let sub_i = submitted.iter().position(|&x| x == correct[i]);
+            let sub_j = submitted.iter().position(|&x| x == correct[j]);
+            
+            if let (Some(si), Some(sj)) = (sub_i, sub_j) {
+                if si > sj {
+                    inversions += 1;
+                }
+            }
+        }
+    }
+    
+    let max_inversions = (n * (n - 1)) / 2;
+    if max_inversions == 0 {
+        return 0.0;
+    }
+    
+    inversions as f64 / max_inversions as f64
+}
+
+// ========== CONSENSUS/VOTING ==========
+
+#[wasm_bindgen]
+pub fn compute_voting_accuracy(votes_received: u32, total_voters: u32) -> f64 {
+    if total_voters == 0 {
+        return 0.0;
+    }
+    votes_received as f64 / total_voters as f64
+}
+
+// ========== ANSWER VALIDATION ==========
+
+#[wasm_bindgen]
+pub fn validate_answer_submission(
+    time_taken_ms: u32,
+    time_limit_ms: u32,
+    answer_json: &str,
+) -> bool {
+    // Prevent time manipulation (500ms grace for network lag)
+    if time_taken_ms > time_limit_ms + 500 {
+        return false;
+    }
+    
+    // Validate answer structure
+    if answer_json.is_empty() || answer_json.len() > 10000 {
+        return false;
+    }
+    
+    true
+}
+
+#[wasm_bindgen]
+pub fn detect_cheating_pattern(
+    answer_times: Vec<u32>, // Array of answer times in ms
+    avg_expected_time: u32,
+) -> bool {
+    if answer_times.len() < 3 {
+        return false;
+    }
+    
+    // Check for suspiciously consistent timing (bot behavior)
+    let mut variance = 0u64;
+    let mean = answer_times.iter().sum::<u32>() / answer_times.len() as u32;
+    
+    for &time in &answer_times {
+        let diff = if time > mean { time - mean } else { mean - time };
+        variance += (diff as u64).pow(2);
+    }
+    
+    let std_dev = ((variance / answer_times.len() as u64) as f64).sqrt();
+    
+    // If all answers are within 50ms of each other, likely a bot
+    std_dev < 50.0 && mean < avg_expected_time / 2
+}
+
+// ========== TIMER VALIDATION ==========
+
+#[wasm_bindgen]
+pub fn validate_timer_sync(
+    server_start_timestamp: f64,
+    client_submit_timestamp: f64,
+    server_receive_timestamp: f64,
+    time_limit_seconds: u32,
+) -> bool {
+    let elapsed_server = server_receive_timestamp - server_start_timestamp;
+    let elapsed_client = client_submit_timestamp - server_start_timestamp;
+    
+    // Check if client claim matches server time (with 2s tolerance)
+    let time_diff = (elapsed_server - elapsed_client).abs();
+    
+    if time_diff > 2000.0 {
+        return false; // Clock manipulation detected
+    }
+    
+    // Check if within time limit
+    elapsed_server <= (time_limit_seconds as f64 * 1000.0) + 500.0
+}
+
+// ========== LEADERBOARD CALCULATIONS ==========
+
+#[wasm_bindgen]
+pub fn calculate_leaderboard(
+    player_ids: Vec<JsValue>,
+    scores: Vec<u32>,
+) -> Vec<JsValue> {
+    let mut rankings: Vec<(usize, u32)> = scores
+        .iter()
+        .enumerate()
+        .map(|(i, &s)| (i, s))
+        .collect();
+    
+    // Sort by score descending
+    rankings.sort_by(|a, b| b.1.cmp(&a.1));
+    
+    // Assign ranks (handle ties)
+    let mut results = Vec::new();
+    let mut current_rank = 1u32;
+    let mut prev_score = u32::MAX;
+    
+    for (idx, (original_idx, score)) in rankings.iter().enumerate() {
+        if *score != prev_score {
+            current_rank = (idx + 1) as u32;
+        }
+        
+        // Convert to JS object
+        let obj = js_sys::Object::new();
+        js_sys::Reflect::set(
+            &obj,
+            &"playerId".into(),
+            &player_ids[*original_idx],
+        ).unwrap();
+        js_sys::Reflect::set(&obj, &"score".into(), &(*score).into()).unwrap();
+        js_sys::Reflect::set(&obj, &"rank".into(), &current_rank.into()).unwrap();
+        
+        results.push(obj.into());
+        prev_score = *score;
+    }
+    
+    results
+}
+
+// ========== VOTING AGGREGATION ==========
+
+#[wasm_bindgen]
+pub fn aggregate_votes(
+    target_ids: Vec<JsValue>,
+) -> Vec<JsValue> {
+    let mut vote_counts: HashMap<String, u32> = HashMap::new();
+    
+    for target in target_ids.iter() {
+        if let Some(target_str) = target.as_string() {
+            *vote_counts.entry(target_str).or_insert(0) += 1;
+        }
+    }
+    
+    // Convert to sorted results
+    let mut results: Vec<_> = vote_counts.into_iter().collect();
+    results.sort_by(|a, b| b.1.cmp(&a.1));
+    
+    results
+        .into_iter()
+        .map(|(player_id, votes)| {
+            let obj = js_sys::Object::new();
+            js_sys::Reflect::set(&obj, &"playerId".into(), &player_id.into()).unwrap();
+            js_sys::Reflect::set(&obj, &"votes".into(), &votes.into()).unwrap();
+            obj.into()
+        })
+        .collect()
+}
+
+// ========== STATE COMPRESSION ==========
+
+#[wasm_bindgen]
+pub fn compress_game_state(json_state: &str) -> Vec<u8> {
+    // Simple run-length encoding for repeated data
+    let bytes = json_state.as_bytes();
+    let mut compressed = Vec::new();
+    
+    if bytes.is_empty() {
+        return compressed;
+    }
+    
+    let mut current = bytes[0];
+    let mut count = 1u8;
+    
+    for &byte in &bytes[1..] {
+        if byte == current && count < 255 {
+            count += 1;
+        } else {
+            compressed.push(current);
+            compressed.push(count);
+            current = byte;
+            count = 1;
+        }
+    }
+    
+    compressed.push(current);
+    compressed.push(count);
+    compressed
+}
+
+#[wasm_bindgen]
+pub fn decompress_game_state(compressed: Vec<u8>) -> String {
+    let mut decompressed = Vec::new();
+    
+    let mut i = 0;
+    while i < compressed.len() {
+        let byte = compressed[i];
+        let count = compressed.get(i + 1).unwrap_or(&1);
+        
+        for _ in 0..*count {
+            decompressed.push(byte);
+        }
+        
+        i += 2;
+    }
+    
+    String::from_utf8_lossy(&decompressed).to_string()
+}

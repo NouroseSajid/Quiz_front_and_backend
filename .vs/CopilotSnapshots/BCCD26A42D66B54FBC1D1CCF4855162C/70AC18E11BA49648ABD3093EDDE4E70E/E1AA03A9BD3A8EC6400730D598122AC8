@@ -1,0 +1,23 @@
+﻿// helper loader for Wasm module compiled from wasm/score
+
+let wasm: any = null;
+
+export async function loadScoreWasm(): Promise<void> {
+  if (wasm) return;
+  try {
+    // dynamic import of generated wasm pkg
+    // after running `wasm-pack build --target web` in wasm/score
+    wasm = await import("../wasm/score/pkg/score_wasm.js");
+  } catch (err) {
+    console.warn("WASM module not available, falling back to JS", err);
+  }
+}
+
+export async function computeAccuracy(error: number, tolerance: number): Promise<number> {
+  if (wasm && wasm.compute_accuracy) {
+    return wasm.compute_accuracy(error, tolerance);
+  }
+  // fallback JS implementation
+  const x = error / tolerance;
+  return Math.exp(-x);
+}

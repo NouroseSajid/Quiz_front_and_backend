@@ -1,0 +1,81 @@
+﻿# WebAssembly Integration Guide
+
+This project supports WebAssembly for CPU-bound operations where performance matters (scoring algorithms, cryptography, etc.). We use Rust + **wasm-pack** to compile modules.
+
+## When to use Wasm
+
+- Heavy numerical computation (exponential scoring, physics, etc.)
+- Data validation/encryption in a worker thread
+- Logic that must run on both client and server at native speeds
+
+For most things, plain TypeScript is fine; only offload to Wasm when profiling shows bottlenecks.
+
+## Example: Scoring Accuracy Function
+
+1. **Rust code** (`wasm/score/src/lib.rs`):
+   ```rust
+   use wasm_bindgen::prelude::*;
+
+   #[wasm_bindgen]
+   pub fn compute_accuracy(error: f64, tolerance: f64) -> f64 {
+       let x = error / tolerance;
+       f64::exp(-x)
+   }
+   ```
+
+2. **Build**:
+   ```bash
+   cd wasm/score
+   wasm-pack build --target web
+   ```
+   This generates a `pkg/` directory containing `.wasm` and JS glue (`score_wasm.js`).
+
+3. **Loader helper** (`lib/scoreWasm.ts`):
+   ```ts
+   let wasm: any = null;
+
+   export async function loadScoreWasm(): Promise<void> {
+     if (wasm) return;
+     try {
+       wasm = await import("../wasm/score/pkg/score_wasm.js");
+     } catch (_err) {
+       // fallback
+     }
+   }
+
+   export async function computeAccuracy(error: number, tolerance: number) {
+     if (wasm && wasm.compute_accuracy) {
+       return wasm.compute_accuracy(error, tolerance);
+     }
+     const x = error / tolerance;
+     return Math.exp(-x);
+   }
+   ```
+
+   *Call `await loadScoreWasm()` at app startup before using `computeAccuracy`.*
+
+4. **Usage** (in game logic or components):
+   ```ts
+   import { computeAccuracy, loadScoreWasm } from "@/lib/scoreWasm";
+
+   await loadScoreWasm();
+   const score = await computeAccuracy(0.1, 0.2);
+   ```
+
+## Setup Notes
+
+- Install Rust + `wasm-pack` (`cargo install wasm-pack`)
+- The generated pkg files should be served by Next.js (`next.config.js` may need `assetPrefix` if using CDN)
+- For Node.js server use, compile with `--target nodejs` or dual targets
+
+## Fallback Strategy
+
+`scoreWasm` helper ensures graceful fallback to pure JS if the Wasm module fails to load. This keeps the app working in environments where Wasm isn’t supported (older browsers, serverless workers with restrictions).
+
+## Further Ideas
+
+- Move game‑state serialization or checkpoint diffing into Wasm for speed.
+- Use Web Workers + Wasm for heavy calculations without blocking UI.
+
+---
+By following this pattern you can progressively enhance performance where it matters, keeping the rest of the codebase in familiar TypeScript.
