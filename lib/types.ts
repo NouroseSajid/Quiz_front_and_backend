@@ -28,8 +28,14 @@ export interface QuestionInput {
   metadata: Record<string, any>;
 }
 
+export interface MCQOption {
+  text: string;
+  image?: string; // URL to image for future picture MCQ support
+}
+
 export interface MCQMetadata {
-  options: string[];
+  options: (string | MCQOption)[]; // Support both simple strings and objects with images
+  displayMode?: "text" | "image" | "mixed"; // How to display the options
 }
 
 export interface RangeMetadata {

@@ -1,4 +1,4 @@
-use client";
+"use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -27,6 +27,9 @@ export default function JoinPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Join failed");
       localStorage.setItem("playerId", data.playerId);
+      if (data.playerToken) {
+        localStorage.setItem("playerToken", data.playerToken);
+      }
       localStorage.setItem("gameId", data.gameId || code);
       router.push(`/lobby/${data.gameId || code}`);
     } catch (err: any) {

@@ -38,16 +38,21 @@ export async function POST(
       );
     }
 
-    const session = GameStateManager.getSession(gameId);
+    let session = GameStateManager.getSession(gameId);
     if (!session) {
-      return NextResponse.json(
-        { error: "Game session not found" },
-        { status: 404 }
-      );
+      // Try to recover session
+      const recovered = await GameStatePersistence.ensureSession(gameId);
+      session = recovered || undefined;
+      if (!session) {
+        return NextResponse.json(
+          { error: "Game session not found" },
+          { status: 404 }
+        );
+      }
     }
 
     // Verify host
-    const host = await prisma.player.findUnique({
+    const host: any = await prisma.player.findUnique({
       where: { id: playerId },
     });
 

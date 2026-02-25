@@ -23,10 +23,10 @@ import { verifyPlayerToken } from "@/lib/playerAuth";
  */
 export async function POST(
   request: NextRequest,
-  context: { params: { gameId: string } }
+  context: { params: Promise<{ gameId: string }> }
 ) {
   try {
-    const { gameId } = context.params;
+    const { gameId } = await context.params;
     const body = await request.json();
     const { hostId, hostToken, playerId } = body;
 
@@ -54,7 +54,8 @@ export async function POST(
       where: { gameId },
     });
 
-    const host = await prisma.player.findUnique({
+    // authSalt/authHash fields aren't exposed in the generated type; cast to any to access them
+    const host: any = await prisma.player.findUnique({
       where: { id: hostId },
     });
 

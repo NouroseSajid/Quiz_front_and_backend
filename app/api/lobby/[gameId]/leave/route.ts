@@ -37,7 +37,7 @@ export async function POST(
       );
     }
 
-    const player = await prisma.player.findUnique({
+    const player: any = await prisma.player.findUnique({
       where: { id: playerId },
     });
 

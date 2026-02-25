@@ -14,23 +14,3 @@ export const prisma: PrismaClient =
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }
-
-// Initialize game state persistence service
-import { GameStatePersistence } from "@/lib/gameStatePersistence";
-
-let persistenceInitialized = false;
-
-async function initializePersistence() {
-  if (persistenceInitialized) return;
-  
-  try {
-    await GameStatePersistence.initialize();
-    persistenceInitialized = true;
-  } catch (error) {
-    console.error("[Prisma] Failed to initialize persistence:", error);
-  }
-}
-
-// Initialize on first import
-initializePersistence().catch(console.error);
-

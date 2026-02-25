@@ -3,16 +3,18 @@ import { GameStateManager } from "@/lib/gameState";
 import { prisma } from "@/lib/prisma";
 import { GameStatePersistence } from "@/lib/gameStatePersistence";
 import { verifyPlayerToken } from "@/lib/playerAuth";
+import { isAdminFromRequest } from "@/lib/adminAuth";
 
 /**
  * POST /api/lobby/[gameId]/start
  * 
- * Host starts the game
+ * Admin starts the game (admin only)
+ * 
+ * Headers:
+ *   Authorization: Bearer <admin-token> (or admin cookie)
  * 
  * Body:
  * {
- *   playerId: string (must be host),
- *   playerToken: string,
  *   roundIds?: string[] (specific rounds to play)
  * }
  * 
@@ -30,31 +32,26 @@ export async function POST(
   try {
     const { gameId } = await context.params;
     const body = await request.json();
-    const { playerId, playerToken, roundIds } = body;
+    const { roundIds } = body;
+    const isAdmin = await isAdminFromRequest(request);
 
-    if (!playerId || !playerToken) {
+    // Only admins can start games
+    if (!isAdmin) {
       return NextResponse.json(
-        { error: "Player ID and token are required" },
-        { status: 400 }
-      );
-    }
-
-    // Verify player is host
-    const player = await prisma.player.findUnique({
-      where: { id: playerId },
-    });
-
-    if (!player || !player.isHost || player.gameId !== gameId) {
-      return NextResponse.json(
-        { error: "Only host can start the game" },
+        { error: "Only admins can start games" },
         { status: 403 }
       );
     }
 
-    if (!verifyPlayerToken(playerToken, player.authSalt, player.authHash)) {
+    // Verify the game exists
+    const session = await prisma.session.findUnique({
+      where: { gameId },
+    });
+
+    if (!session) {
       return NextResponse.json(
-        { error: "Invalid player token" },
-        { status: 401 }
+        { error: "Game session not found" },
+        { status: 404 }
       );
     }
 
@@ -88,16 +85,81 @@ export async function POST(
       );
     }
 
-    if (game.rounds.length === 0) {
-      return NextResponse.json(
-        { error: "No rounds available for this game" },
-        { status: 400 }
-      );
+    const totalQuestions = game.rounds.reduce(
+      (sum, round) => sum + (round.questions?.length || 0),
+      0
+    );
+
+    // If no rounds or no questions on this game, copy from the ADMIN question bank
+    if (game.rounds.length === 0 || totalQuestions === 0) {
+      if (game.rounds.length > 0) {
+        await prisma.round.deleteMany({ where: { gameId } });
+      }
+      const adminGame = await prisma.game.findFirst({
+        where: { code: "ADMIN" },
+        include: {
+          rounds: {
+            include: { questions: { orderBy: { questionIndex: "asc" } } },
+          },
+        },
+      });
+
+      if (!adminGame || adminGame.rounds.length === 0) {
+        return NextResponse.json(
+          { error: "No questions in the question bank. Add questions via Admin > Add Questions first." },
+          { status: 400 }
+        );
+      }
+
+      // Copy each round and its questions into this game
+      for (const srcRound of adminGame.rounds) {
+        const newRound = await prisma.round.create({
+          data: {
+            gameId: game.id,
+            roundNumber: srcRound.roundNumber,
+            category: srcRound.category,
+            status: "ACTIVE",
+          },
+        });
+
+        for (const srcQ of srcRound.questions) {
+          await prisma.question.create({
+            data: {
+              roundId: newRound.id,
+              type: srcQ.type,
+              text: srcQ.text,
+              media: srcQ.media,
+              correct: srcQ.correct ?? undefined,
+              metadata: srcQ.metadata ?? undefined,
+              pointsMax: srcQ.pointsMax,
+              timeLimit: srcQ.timeLimit,
+              questionIndex: srcQ.questionIndex,
+            },
+          });
+        }
+      }
+
+      // Re-fetch the game with the newly copied rounds
+      game = await prisma.game.findUnique({
+        where: { id: gameId },
+        include: {
+          rounds: {
+            include: { questions: true },
+          },
+        },
+      });
+
+      if (!game || game.rounds.length === 0) {
+        return NextResponse.json(
+          { error: "Failed to set up rounds for this game" },
+          { status: 500 }
+        );
+      }
     }
 
     // Get in-memory session
-    const session = GameStateManager.getSession(gameId);
-    if (!session) {
+    const gameSession = GameStateManager.getSession(gameId);
+    if (!gameSession) {
       return NextResponse.json(
         { error: "Session not found" },
         { status: 404 }
@@ -118,15 +180,29 @@ export async function POST(
 
     // Start first round in memory
     const firstRound = game.rounds[0];
-    const questionIds = firstRound.questions.map((q) => q.id);
+    const questionData = firstRound.questions.map((q) => ({
+      id: q.id,
+      questionIndex: q.questionIndex ?? 0,
+      text: q.text,
+      type: q.type,
+      timeLimit: q.timeLimit,
+      pointsMax: q.pointsMax,
+      metadata: q.metadata as Record<string, any> | undefined,
+    }));
+
+    console.log(`[Start Game] Loading ${questionData.length} questions from round ${firstRound.roundNumber}`);
+    console.log(`[Start Game] First question:`, questionData[0]);
 
     const roundState = GameStateManager.startRound(
       gameId,
       firstRound.id,
       firstRound.roundNumber,
       firstRound.category,
-      questionIds
+      questionData
     );
+
+    console.log(`[Start Game] Round state created with ${roundState.questions.length} questions`);
+    console.log(`[Start Game] Current question index: ${roundState.currentQuestionIndex}`);
 
     // Create checkpoint for game start
     await GameStatePersistence.createCheckpoint(gameId, "ROUND_START");
@@ -134,9 +210,9 @@ export async function POST(
     return NextResponse.json(
       {
         success: true,
-        session,
+        session: gameSession,
         firstRound: roundState,
-        playerCount: Object.values(session.players).filter((p) => p.isActive)
+        playerCount: Object.values(gameSession.players).filter((p) => p.isActive)
           .length,
         message: "Game started!",
       },

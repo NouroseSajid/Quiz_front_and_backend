@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GameStateManager } from "@/lib/gameState";
+import { GameStatePersistence } from "@/lib/gameStatePersistence";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -25,6 +26,7 @@ export async function GET(
 
     const game = await prisma.game.findUnique({
       where: { id: gameId },
+      include: { players: true },
     });
 
     if (!game) {
@@ -37,13 +39,34 @@ export async function GET(
     let session = GameStateManager.getSession(gameId);
 
     if (!session) {
+      const recovered = await GameStatePersistence.ensureSession(gameId);
+      session = recovered || undefined;
+    }
+
+    if (!session) {
       return NextResponse.json(
         { error: "Session not found or expired" },
         { status: 404 }
       );
     }
 
-    const players = GameStateManager.getPlayers(gameId);
+    // Get players in-memory
+    let players = GameStateManager.getPlayers(gameId);
+    
+    // If in-memory players don't match database, sync from database
+    if (players.length !== game.players.length) {
+      console.log(`[Lobby API] Syncing players: in-memory=${players.length}, database=${game.players.length}`);
+      // Re-add all players from database
+      game.players.forEach(dbPlayer => {
+        const exists = players.find(p => p.id === dbPlayer.id);
+        if (!exists) {
+          GameStateManager.addPlayer(gameId, dbPlayer.id, dbPlayer.name, false);
+        }
+      });
+      players = GameStateManager.getPlayers(gameId);
+    }
+
+    console.log(`[Lobby API] Returning ${players.length} players for lobby ${gameId}`);
 
     return NextResponse.json({
       success: true,

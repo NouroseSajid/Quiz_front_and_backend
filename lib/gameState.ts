@@ -33,6 +33,7 @@ export interface QuestionState {
   endedAt?: Date;
   revealed: boolean;
   answers: Record<string, any>; // playerId -> answer
+  metadata?: Record<string, any>; // MCQ options, RANGE min/max, GEO scope, etc
 }
 
 export interface RoundState {
@@ -122,6 +123,8 @@ export class GameStateManager {
     session.players[playerId] = player;
     session.updatedAt = new Date();
 
+    console.log(`[GameState] Added player ${name} (${playerId}) to session ${gameId}. Total players: ${Object.keys(session.players).length}`);
+
     return player;
   }
 
@@ -143,8 +146,13 @@ export class GameStateManager {
    */
   static getPlayers(gameId: string): PlayerState[] {
     const session = activeSessions.get(gameId);
-    if (!session) return [];
-    return Object.values(session.players);
+    if (!session) {
+      console.log(`[GameState] getPlayers called but no session found for ${gameId}`);
+      return [];
+    }
+    const playerArray = Object.values(session.players);
+    console.log(`[GameState] getPlayers returning ${playerArray.length} players for ${gameId}`);
+    return playerArray;
   }
 
   /**
@@ -182,7 +190,15 @@ export class GameStateManager {
     roundId: string,
     roundNumber: number,
     category: string,
-    questionIds: string[]
+    questions: Array<{
+      id: string;
+      questionIndex: number;
+      text: string;
+      type: string;
+      timeLimit: number;
+      pointsMax: number;
+      metadata?: Record<string, any>;
+    }>
   ): RoundState {
     const session = activeSessions.get(gameId);
     if (!session) throw new Error(`Session not found: ${gameId}`);
@@ -192,14 +208,15 @@ export class GameStateManager {
       roundNumber,
       category,
       status: "ACTIVE",
-      questions: questionIds.map((id, idx) => ({
-        id,
+      questions: questions.map((q, idx) => ({
+        id: q.id,
         roundNumber,
-        questionIndex: idx,
-        text: "",
-        type: "",
-        timeLimit: 30,
-        pointsMax: 1000,
+        questionIndex: q.questionIndex ?? idx,
+        text: q.text,
+        type: q.type,
+        timeLimit: q.timeLimit,
+        pointsMax: q.pointsMax,
+        metadata: q.metadata,
         startedAt: new Date(),
         revealed: false,
         answers: {},
@@ -235,6 +252,14 @@ export class GameStateManager {
     if (!currentRound) throw new Error("No active round");
 
     currentRound.currentQuestionIndex += 1;
+
+    const nextQuestion =
+      currentRound.questions[currentRound.currentQuestionIndex];
+    if (nextQuestion) {
+      nextQuestion.startedAt = new Date();
+      nextQuestion.revealed = false;
+      nextQuestion.answers = {};
+    }
 
     // Reset player answers for new question
     Object.values(session.players).forEach((player) => {
@@ -315,14 +340,34 @@ export class GameStateManager {
 
   /**
    * Get leaderboard for current session
+   * Uses memoization to avoid repeated sorting if nothing changed
    */
   static getLeaderboard(gameId: string): PlayerState[] {
     const session = activeSessions.get(gameId);
     if (!session) return [];
 
-    return Object.values(session.players)
-      .filter((p) => p.isActive)
-      .sort((a, b) => b.score - a.score);
+    const activePlayers = Object.values(session.players).filter((p) => p.isActive);
+    
+    // Return cached result if state hasn't changed
+    const sessionAny = session as any;
+    if (
+      sessionAny._leaderboardCache?.timestamp === session.updatedAt?.getTime() &&
+      sessionAny._leaderboardCache?.length === activePlayers.length
+    ) {
+      return sessionAny._leaderboardCache.data;
+    }
+
+    // Recompute leaderboard
+    const sorted = [...activePlayers].sort((a, b) => b.score - a.score);
+    
+    // Cache result
+    sessionAny._leaderboardCache = {
+      data: sorted,
+      timestamp: session.updatedAt?.getTime(),
+      length: activePlayers.length,
+    };
+
+    return sorted;
   }
 
   /**

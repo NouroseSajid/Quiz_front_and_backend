@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "wasm:build": "cd wasm/score && wasm-pack build --target web --release && cd ../..",
+    "dev": "npm run wasm:build && next dev",
+    "build": "npm run wasm:build && next build",
     "start": "next start",
     "lint": "eslint"
   },

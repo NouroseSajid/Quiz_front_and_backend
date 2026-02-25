@@ -45,8 +45,16 @@ export default function QuestionForm({
     metadata: {},
   });
 
-  const [mcqOptions, setMcqOptions] = useState<string[]>(["", "", "", ""]);
+  const [mcqOptions, setMcqOptions] = useState<Array<{ text: string; image?: string }>>(
+    [
+      { text: "" },
+      { text: "" },
+      { text: "" },
+      { text: "" },
+    ]
+  );
   const [mcqCorrect, setMcqCorrect] = useState(0);
+  const [mcqDisplayMode, setMcqDisplayMode] = useState<"text" | "image" | "mixed">("text");
   const [rangeMin, setRangeMin] = useState(0);
   const [rangeMax, setRangeMax] = useState(100);
   const [rangeCorrect, setRangeCorrect] = useState(50);
@@ -69,9 +77,12 @@ export default function QuestionForm({
     }
   };
 
-  const handleMcqOptionChange = (index: number, value: string) => {
+  const handleMcqOptionChange = (index: number, field: "text" | "image", value: string) => {
     const newOptions = [...mcqOptions];
-    newOptions[index] = value;
+    newOptions[index] = {
+      ...newOptions[index],
+      [field]: value,
+    };
     setMcqOptions(newOptions);
   };
 
@@ -86,12 +97,15 @@ export default function QuestionForm({
       // Build correct answer and metadata based on type
       switch (formData.type) {
         case "MULTIPLE_CHOICE":
-          if (mcqOptions.some((opt) => !opt.trim())) {
+          if (mcqOptions.some((opt) => !opt.text.trim())) {
             setSubmitError("All MCQ options must be filled");
             return;
           }
-          finalData.correct = mcqOptions[mcqCorrect];
-          finalData.metadata = { options: mcqOptions };
+          finalData.correct = mcqOptions[mcqCorrect].text;
+          finalData.metadata = { 
+            options: mcqOptions,
+            displayMode: mcqDisplayMode,
+          };
           break;
 
         case "RANGE":
@@ -339,34 +353,81 @@ export default function QuestionForm({
 
         {/* Multiple Choice */}
         {formData.type === "MULTIPLE_CHOICE" && (
-          <div className="space-y-3">
-            {mcqOptions.map((option, idx) => (
-              <div key={idx}>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                  Option {idx + 1} {idx === mcqCorrect && "(✓ Correct)"}
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={option}
-                    onChange={(e) => handleMcqOptionChange(idx, e.target.value)}
-                    placeholder={`Option ${idx + 1}`}
-                    className="flex-1 px-3 py-2 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                Display Mode
+              </label>
+              <div className="flex gap-2">
+                {(["text", "image", "mixed"] as const).map((mode) => (
                   <button
+                    key={mode}
                     type="button"
-                    onClick={() => setMcqCorrect(idx)}
-                    className={`px-3 py-2 rounded-lg font-medium transition ${
-                      mcqCorrect === idx
+                    onClick={() => setMcqDisplayMode(mode)}
+                    className={`px-4 py-2 rounded-lg font-medium transition capitalize ${
+                      mcqDisplayMode === mode
                         ? "bg-blue-500 text-white"
                         : "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50"
                     }`}
                   >
-                    Set Correct
+                    {mode}
                   </button>
-                </div>
+                ))}
               </div>
-            ))}
+              <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-2">
+                Text: options only • Image: pictures only • Mixed: images + text
+              </p>
+            </div>
+
+            <div className="space-y-3 border-t border-zinc-300 dark:border-zinc-700 pt-4">
+              {mcqOptions.map((option, idx) => (
+                <div key={idx} className="space-y-2">
+                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    Option {idx + 1} {idx === mcqCorrect && "(✓ Correct)"}
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={option.text}
+                      onChange={(e) => handleMcqOptionChange(idx, "text", e.target.value)}
+                      placeholder={`Option ${idx + 1}`}
+                      className="flex-1 px-3 py-2 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setMcqCorrect(idx)}
+                      className={`px-3 py-2 rounded-lg font-medium transition ${
+                        mcqCorrect === idx
+                          ? "bg-blue-500 text-white"
+                          : "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50"
+                      }`}
+                    >
+                      Set Correct
+                    </button>
+                  </div>
+
+                  {(mcqDisplayMode === "image" || mcqDisplayMode === "mixed") && (
+                    <input
+                      type="url"
+                      value={option.image || ""}
+                      onChange={(e) => handleMcqOptionChange(idx, "image", e.target.value)}
+                      placeholder="Image URL (optional)"
+                      className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  )}
+                  {option.image && (
+                    <div className="mt-2">
+                      <img
+                        src={option.image}
+                        alt={`Option ${idx + 1}`}
+                        className="h-24 w-24 object-cover rounded border border-zinc-300 dark:border-zinc-600"
+                        onError={(e) => (e.currentTarget.style.display = "none")}
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

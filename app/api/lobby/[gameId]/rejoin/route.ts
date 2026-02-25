@@ -20,9 +20,12 @@ import { verifyPlayerToken } from "@/lib/playerAuth";
  *   session?: GameStateSnapshot
  * }
  */
-export async function POST(request: NextRequest, { params }: { params: { gameId: string } }) {
+export async function POST(
+  request: NextRequest,
+  context: { params: Promise<{ gameId: string }> }
+) {
   try {
-    const { gameId } = params;
+    const { gameId } = await context.params;
     const body = await request.json();
     const { playerId, playerToken } = body;
 
@@ -34,7 +37,8 @@ export async function POST(request: NextRequest, { params }: { params: { gameId:
     }
 
     // Validate player and token
-    const player = await prisma.player.findUnique({
+    // cast to any so we can read authSalt/authHash
+    const player: any = await prisma.player.findUnique({
       where: { id: playerId },
     });
 

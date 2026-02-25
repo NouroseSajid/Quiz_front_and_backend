@@ -127,3 +127,78 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    const body = await request.json();
+    const { id, text, type, correct, metadata, pointsMax, timeLimit } = body;
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "Question ID is required" },
+        { status: 400 }
+      );
+    }
+
+    // Update the question
+    const question = await prisma.question.update({
+      where: { id },
+      data: {
+        ...(text !== undefined && { text }),
+        ...(type !== undefined && { type }),
+        ...(correct !== undefined && { correct }),
+        ...(metadata !== undefined && { metadata }),
+        ...(pointsMax !== undefined && { pointsMax }),
+        ...(timeLimit !== undefined && { timeLimit }),
+      },
+    });
+
+    return NextResponse.json({
+      success: true,
+      question,
+      message: "Question updated successfully",
+    });
+  } catch (error) {
+    console.error("Error updating question:", error);
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to update question",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "Question ID is required" },
+        { status: 400 }
+      );
+    }
+
+    // Delete the question
+    await prisma.question.delete({
+      where: { id },
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "Question deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting question:", error);
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to delete question",
+      },
+      { status: 500 }
+    );
+  }
+}

@@ -38,16 +38,21 @@ export async function POST(
       );
     }
 
-    const session = GameStateManager.getSession(gameId);
+    let session = GameStateManager.getSession(gameId);
     if (!session) {
-      return NextResponse.json(
-        { error: "Game session not found" },
-        { status: 404 }
-      );
+      // Try to recover session
+      const recovered = await GameStatePersistence.ensureSession(gameId);
+      session = recovered || undefined;
+      if (!session) {
+        return NextResponse.json(
+          { error: "Game session not found" },
+          { status: 404 }
+        );
+      }
     }
 
     // Verify host
-    const host = await prisma.player.findUnique({
+    const host: any = await prisma.player.findUnique({
       where: { id: playerId },
     });
 
@@ -65,14 +70,23 @@ export async function POST(
       );
     }
 
-    if (session.hostId !== playerId) {
+    // Get fresh session reference
+    const activeSession = GameStateManager.getSession(gameId);
+    if (!activeSession) {
+      return NextResponse.json(
+        { error: "Game session not found" },
+        { status: 404 }
+      );
+    }
+
+    if (activeSession.hostId !== playerId) {
       return NextResponse.json(
         { error: "Only host can advance questions" },
         { status: 403 }
       );
     }
 
-    const currentRound = session.rounds[session.currentRoundIndex];
+    const currentRound = activeSession.rounds[activeSession.currentRoundIndex];
     if (!currentRound) {
       return NextResponse.json(
         { error: "No active round" },
@@ -101,7 +115,7 @@ export async function POST(
     return NextResponse.json(
       {
         success: true,
-        session,
+        session: activeSession,
         question: nextQuestion,
         currentQuestionIndex: currentRound.currentQuestionIndex,
         totalQuestions: currentRound.questions.length,

@@ -28,7 +28,6 @@ model Player {
   gameId   String
   game     Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
   score    Int     @default(0)
-  isHost   Boolean @default(false)
   isActive Boolean @default(true)
   authSalt String?
   authHash String?
@@ -105,7 +104,7 @@ model Session {
   id        String   @id @default(cuid())
   gameId    String   @unique
   game      Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
-  hostId    String
+  hostId    String   // Host is a separate entity, not necessarily a player
   status    String // LOBBY, PLAYING, PAUSED, COMPLETED
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())

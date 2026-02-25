@@ -11,22 +11,52 @@
 import { prisma } from "@/lib/prisma";
 import { GameStateManager, GameStateSnapshot } from "@/lib/gameState";
 
+const backupsEnabled = () => process.env.GAME_STATE_BACKUPS_ENABLED !== "0";
+
 let backupInterval: NodeJS.Timeout | null = null;
+let isInitialized = false;
+let initializationPromise: Promise<void> | null = null;
 
 export class GameStatePersistence {
+  /**
+   * Ensure the service is initialized (lazy initialization)
+   */
+  private static async ensureInitialized(): Promise<void> {
+    if (isInitialized) return;
+    
+    // If already initializing, wait for it
+    if (initializationPromise) {
+      await initializationPromise;
+      return;
+    }
+    
+    // Start initialization
+    initializationPromise = this.initialize();
+    await initializationPromise;
+    initializationPromise = null;
+  }
+
   /**
    * Initialize persistence service on app startup
    * - Recover any orphaned sessions from database
    * - Set up periodic backup intervals
    */
   static async initialize(): Promise<void> {
+    if (isInitialized) return;
+    
     try {
       // Recover active sessions from database
       await this.recoverSessions();
 
-      // Start periodic backups (every 30 seconds)
-      this.startPeriodicBackups(30000);
+      if (!backupsEnabled()) {
+        this.stopPeriodicBackups();
+        console.log("[GameState] Backups disabled via env");
+      } else {
+        // Start periodic backups (every 30 seconds)
+        this.startPeriodicBackups(30000);
+      }
 
+      isInitialized = true;
       console.log("[GameState] Persistence service initialized");
     } catch (error) {
       console.error("[GameState] Failed to initialize persistence:", error);
@@ -37,6 +67,7 @@ export class GameStatePersistence {
    * Save current game state snapshot to database
    */
   static async backupSession(gameId: string): Promise<void> {
+    if (!backupsEnabled()) return;
     try {
       const session = GameStateManager.exportSession(gameId);
       if (!session) return;
@@ -122,7 +153,7 @@ export class GameStatePersistence {
           );
         } else {
           // Create fresh session from database data
-          this.createSessionFromDatabase(session);
+          await this.createSessionFromDatabase(session);
         }
       }
 
@@ -135,7 +166,7 @@ export class GameStatePersistence {
   /**
    * Create in-memory session from database records
    */
-  private static createSessionFromDatabase(dbSession: any): void {
+  static async createSessionFromDatabase(dbSession: any): Promise<void> {
     try {
       const { game, hostId } = dbSession;
 
@@ -152,7 +183,7 @@ export class GameStatePersistence {
           game.id,
           dbPlayer.id,
           dbPlayer.name,
-          dbPlayer.isHost
+          false // Players are no longer hosts
         );
 
         // Update score and status
@@ -163,13 +194,90 @@ export class GameStatePersistence {
         }
       }
 
+      console.log(
+        `[GameState] Loaded ${game.players.length} players from database for ${game.id}`
+      );
+
       session.status = dbSession.status;
+
+      // If game is ACTIVE, restore rounds and questions from database
+      if (game.status === "ACTIVE" && dbSession.status === "PLAYING") {
+        const dbGame = await prisma.game.findUnique({
+          where: { id: game.id },
+          include: {
+            rounds: {
+              include: {
+                questions: {
+                  orderBy: { questionIndex: "asc" },
+                },
+              },
+              orderBy: { roundNumber: "asc" },
+            },
+          },
+        });
+
+        if (dbGame && dbGame.rounds.length > 0) {
+          // Restore the first round (or find the active round)
+          const firstRound = dbGame.rounds[0];
+          const questionData = firstRound.questions.map((q) => ({
+            id: q.id,
+            questionIndex: q.questionIndex ?? 0,
+            text: q.text,
+            type: q.type,
+            timeLimit: q.timeLimit,
+            pointsMax: q.pointsMax,
+            metadata: q.metadata as Record<string, any> | undefined,
+          }));
+
+          GameStateManager.startRound(
+            game.id,
+            firstRound.id,
+            firstRound.roundNumber,
+            firstRound.category,
+            questionData
+          );
+
+          console.log(`[GameState] Restored rounds from database for ${game.id}`);
+        }
+      }
+
       console.log(
         `[GameState] Created session ${game.id} from database records`
       );
     } catch (error) {
       console.error("[GameState] Failed to create session from DB:", error);
     }
+  }
+
+  /**
+   * Ensure a session exists in memory, attempting recovery or DB rebuild.
+   */
+  static async ensureSession(gameId: string): Promise<GameStateSnapshot | null> {
+    await this.ensureInitialized();
+    
+    const existing = GameStateManager.getSession(gameId);
+    if (existing) return existing;
+
+    const recovered = await this.recoverSession(gameId);
+    if (recovered) return recovered;
+
+    const dbSession = await prisma.session.findUnique({
+      where: { gameId },
+      include: {
+        game: {
+          include: {
+            players: true,
+          },
+        },
+      },
+    });
+
+    if (!dbSession || !dbSession.isActive || dbSession.status === "COMPLETED") {
+      return null;
+    }
+
+    await this.createSessionFromDatabase(dbSession);
+    return GameStateManager.getSession(gameId) ?? null;
   }
 
   /**
@@ -204,6 +312,11 @@ export class GameStatePersistence {
    * Start periodic backup interval
    */
   static startPeriodicBackups(intervalMs: number = 30000): void {
+    if (!backupsEnabled()) {
+      this.stopPeriodicBackups();
+      console.log("[GameState] Backups disabled via env");
+      return;
+    }
     if (backupInterval) clearInterval(backupInterval);
 
     backupInterval = setInterval(async () => {
@@ -230,6 +343,7 @@ export class GameStatePersistence {
     maxBackupsPerGame: number = 5,
     maxAgeMs: number = 86400000 // 24 hours
   ): Promise<void> {
+    if (!backupsEnabled()) return;
     try {
       const now = new Date(Date.now() - maxAgeMs);
 
@@ -269,6 +383,7 @@ export class GameStatePersistence {
     gameId: string,
     checkpoint: string
   ): Promise<void> {
+    if (!backupsEnabled()) return;
     try {
       const session = GameStateManager.exportSession(gameId);
       if (!session) return;

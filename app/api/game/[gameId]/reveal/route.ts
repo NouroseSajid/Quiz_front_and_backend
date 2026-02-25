@@ -3,6 +3,7 @@ import { GameStateManager } from "@/lib/gameState";
 import { GameStatePersistence } from "@/lib/gameStatePersistence";
 import { prisma } from "@/lib/prisma";
 import { verifyPlayerToken } from "@/lib/playerAuth";
+import { loadScoreWasm, calculateGeoScore, calculateFinalScore, rankingError, computeVotingAccuracy } from "@/lib/scoreWasm";
 
 /**
  * POST /api/game/[gameId]/reveal
@@ -39,16 +40,21 @@ export async function POST(
       );
     }
 
-    const session = GameStateManager.getSession(gameId);
+    let session = GameStateManager.getSession(gameId);
     if (!session) {
-      return NextResponse.json(
-        { error: "Game session not found" },
-        { status: 404 }
-      );
+      // Try to recover session
+      const recovered = await GameStatePersistence.ensureSession(gameId);
+      session = recovered || undefined;
+      if (!session) {
+        return NextResponse.json(
+          { error: "Game session not found" },
+          { status: 404 }
+        );
+      }
     }
 
     // Verify host
-    const host = await prisma.player.findUnique({
+    const host: any = await prisma.player.findUnique({
       where: { id: playerId },
     });
 
@@ -104,6 +110,16 @@ export async function POST(
           );
         }
       }
+    }
+
+    // Load WASM for enhanced scoring calculations (if available)
+    try {
+      await loadScoreWasm();
+      // WASM functions are now available for geo-scoring, ranking, voting accuracy
+      // The scoring system uses both automatic (WASM) and manual (results) scoring modes
+      console.log("[Game] WASM scoring engine loaded for question reveal");
+    } catch (err) {
+      console.warn("[Game] WASM scoring skipped, using standard scoring", err);
     }
 
     await GameStatePersistence.createCheckpoint(gameId, "QUESTION_RESULTS");

@@ -4,15 +4,26 @@
 // Automatically falls back to JavaScript if WASM fails to load
 
 let wasm: any = null;
+let wasmPromise: Promise<void> | null = null;
 
 export async function loadScoreWasm(): Promise<void> {
+  // Already loaded
   if (wasm) return;
-  try {
-    wasm = await import("../wasm/score/pkg/score_wasm.js");
-    console.log("? WASM scoring engine loaded");
-  } catch (err) {
-    console.warn("?? WASM module failed to load, using JS fallback", err);
-  }
+  
+  // Load in progress - avoid duplicate requests
+  if (wasmPromise) return wasmPromise;
+  
+  wasmPromise = (async () => {
+    try {
+      wasm = await import("../wasm/score/pkg/score_wasm.js");
+      console.log("✓ WASM scoring engine loaded");
+    } catch (err) {
+      console.warn("✗ WASM module failed to load, using JS fallback", err);
+      wasm = null;
+    }
+  })();
+  
+  return wasmPromise;
 }
 
 // ========== ACCURACY ==========
