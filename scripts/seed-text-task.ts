@@ -445,7 +445,7 @@ async function seedTextTaskQuestions() {
           metadata: {
             acceptedAnswers: q.acceptedAnswers,
           },
-          pointsMax: 1000,
+          pointsMax: [100, 200, 300, 400, 500][(textExistingCount + textCount) % 5],
           timeLimit: 30,
           questionIndex: textExistingCount + textCount,
         },
@@ -485,7 +485,7 @@ async function seedTextTaskQuestions() {
             taskType: q.taskType,
             votingFormat: q.votingFormat,
           },
-          pointsMax: 1000,
+          pointsMax: [100, 200, 300, 400, 500][(taskExistingCount + taskCount) % 5],
           timeLimit: q.timeLimit,
           questionIndex: taskExistingCount + taskCount,
         },

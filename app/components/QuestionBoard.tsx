@@ -54,10 +54,10 @@ export function QuestionBoard({
 
   if (!question) {
     return (
-      <div className="w-full h-screen bg-gradient-to-b from-indigo-900 via-blue-900 to-purple-900 flex items-center justify-center">
+      <div className="w-full h-screen bg-[var(--background)] flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-6xl font-bold text-white mb-4">🎯 Quiz Board</h1>
-          <p className="text-2xl text-gray-300">Waiting for next question...</p>
+          <h1 className="text-5xl font-bold mb-4">Quiz Board</h1>
+          <p className="text-xl text-[var(--muted)]">Waiting for next question...</p>
         </div>
       </div>
     );
@@ -70,9 +70,9 @@ export function QuestionBoard({
   });
 
   return (
-    <div className="w-full min-h-screen bg-gradient-to-b from-indigo-900 via-blue-900 to-purple-900 p-8">
+    <div className="w-full min-h-screen bg-[var(--background)] p-8">
       {/* Header */}
-      <div className="mb-8 text-white">
+      <div className="mb-8">
         <div className="flex justify-between items-center mb-4">
           <div className="flex-1">
             <h1 className="text-4xl font-bold">
@@ -80,8 +80,8 @@ export function QuestionBoard({
             </h1>
           </div>
           <div className="text-right">
-            <div className="text-sm text-gray-300 mb-1">Question Type</div>
-            <div className="bg-white/20 px-4 py-2 rounded-lg text-xl font-semibold">
+            <div className="text-sm text-[var(--muted)] mb-1">Question Type</div>
+            <div className="bg-[var(--surface)] border border-[var(--border)] px-4 py-2 rounded-lg text-xl font-semibold">
               {question.type}
             </div>
           </div>
@@ -89,8 +89,8 @@ export function QuestionBoard({
       </div>
 
       {/* Main Question Area */}
-      <div className="mb-8 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-12 shadow-2xl min-h-64 flex flex-col justify-center">
-        <div className="text-white">
+      <div className="mb-8 bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-12 shadow-sm min-h-64 flex flex-col justify-center">
+        <div>
           <p className="text-6xl font-bold leading-tight">{question.text}</p>
         </div>
       </div>
@@ -100,10 +100,10 @@ export function QuestionBoard({
         <div
           className={`relative w-64 h-64 rounded-full flex items-center justify-center font-bold text-6xl transition-all duration-300 shadow-2xl ${
             isCritical
-              ? "bg-gradient-to-br from-red-500 to-red-700 text-white scale-110 animate-pulse"
+              ? "bg-[var(--danger)] text-white scale-110 animate-pulse"
               : isWarning
-                ? "bg-gradient-to-br from-yellow-400 to-yellow-600 text-white scale-105"
-                : "bg-gradient-to-br from-green-400 to-green-600 text-white"
+                ? "bg-[var(--warning)] text-white scale-105"
+                : "bg-[var(--accent)] text-white"
           }`}
         >
           <div className="text-center">
@@ -124,26 +124,26 @@ export function QuestionBoard({
           return (
             <div
               key={player.id}
-              className="bg-white/10 backdrop-blur-sm border-2 border-white/30 rounded-xl p-6 text-white hover:bg-white/20 transition-all duration-300"
+              className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6 hover:border-[var(--accent)] transition-all duration-300"
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="text-3xl">{medal}</div>
-                <div className="text-sm text-gray-300 uppercase tracking-wider">
+                <div className="text-sm text-[var(--muted)] uppercase tracking-wider">
                   Position {idx + 1}
                 </div>
               </div>
               <h3 className="text-2xl font-bold mb-2 truncate">{player.name}</h3>
               <div className="flex items-baseline gap-2">
-                <span className="text-4xl font-black text-yellow-300">
+                <span className="text-4xl font-black text-[var(--accent-pop)]">
                   {player.score}
                 </span>
-                <span className="text-gray-300">points</span>
+                <span className="text-[var(--muted)]">points</span>
               </div>
 
               {/* Score bar */}
-              <div className="mt-4 h-3 bg-white/20 rounded-full overflow-hidden">
+              <div className="mt-4 h-3 bg-[var(--surface-muted)] rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-yellow-400 to-yellow-300 rounded-full transition-all duration-500"
+                    className="h-full bg-[var(--accent-pop)] rounded-full transition-all duration-500"
                   style={{
                     width: `${Math.min((player.score / (sortedPlayers[0]?.score || 100)) * 100, 100)}%`,
                   }}
@@ -155,11 +155,11 @@ export function QuestionBoard({
       </div>
 
       {/* Players Answered Indicator */}
-      <div className="mt-12 text-center text-white">
-        <div className="inline-block bg-white/10 backdrop-blur-sm border border-white/30 rounded-lg px-8 py-4">
-          <div className="text-sm text-gray-300 mb-2">Players Status</div>
+      <div className="mt-12 text-center">
+        <div className="inline-block bg-[var(--surface)] border border-[var(--border)] rounded-lg px-8 py-4">
+          <div className="text-sm text-[var(--muted)] mb-2">Players Status</div>
           <div className="text-2xl font-bold">
-            <span className="text-green-300">● </span>
+            <span className="text-[var(--success)]">● </span>
             Awaiting Answers...
           </div>
         </div>

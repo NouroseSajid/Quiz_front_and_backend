@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { GameStateManager } from "@/lib/gameState";
 import { prisma } from "@/lib/prisma";
 import { GameStatePersistence } from "@/lib/gameStatePersistence";
-import { verifyPlayerToken } from "@/lib/playerAuth";
+import { verifyHost } from "@/lib/playerAuth";
 
 /**
  * POST /api/game/[gameId]/next-round
@@ -38,6 +38,13 @@ export async function POST(
       );
     }
 
+    if (!(await verifyHost(prisma, gameId, playerId, playerToken))) {
+      return NextResponse.json(
+        { error: "Only host can advance to next round" },
+        { status: 403 }
+      );
+    }
+
     let session = GameStateManager.getSession(gameId);
     if (!session) {
       // Try to recover session
@@ -49,32 +56,6 @@ export async function POST(
           { status: 404 }
         );
       }
-    }
-
-    // Verify host
-    const host: any = await prisma.player.findUnique({
-      where: { id: playerId },
-    });
-
-    if (!host || !host.isHost || host.gameId !== gameId) {
-      return NextResponse.json(
-        { error: "Only host can advance to next round" },
-        { status: 403 }
-      );
-    }
-
-    if (!verifyPlayerToken(playerToken, host.authSalt, host.authHash)) {
-      return NextResponse.json(
-        { error: "Invalid player token" },
-        { status: 401 }
-      );
-    }
-
-    if (session.hostId !== playerId) {
-      return NextResponse.json(
-        { error: "Only host can advance to next round" },
-        { status: 403 }
-      );
     }
 
     // Check if there is a next round
@@ -91,6 +72,13 @@ export async function POST(
 
     // Reset question index to first question
     nextRound.currentQuestionIndex = 0;
+    
+    // Set startedAt for the first question of the new round
+    if (nextRound.questions && nextRound.questions.length > 0) {
+      nextRound.questions[0].startedAt = new Date();
+      nextRound.questions[0].revealed = false;
+      nextRound.questions[0].answers = {};
+    }
 
     // Reset player answers
     Object.values(session.players).forEach((player) => {
@@ -100,10 +88,10 @@ export async function POST(
       }
     });
 
-    session.checkpoint = "ROUND_START";
+    session.checkpoint = "QUESTION_ACTIVE"; // Change from ROUND_START since question is active
     session.updatedAt = new Date();
 
-    await GameStatePersistence.createCheckpoint(gameId, "ROUND_START");
+    await GameStatePersistence.createCheckpoint(gameId, "QUESTION_ACTIVE");
 
     return NextResponse.json(
       {

@@ -147,6 +147,13 @@ export default function AdminPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create game");
       
+      // Store host credentials so this browser can act as host
+      if (data.hostId && data.hostToken) {
+        localStorage.setItem("playerId", data.hostId);
+        localStorage.setItem("playerToken", data.hostToken);
+        localStorage.setItem("hostId", data.hostId);
+      }
+      
       // Show success with game code
       alert(`Game created! Code: ${data.code}\nShare this code with players to join.`);
       

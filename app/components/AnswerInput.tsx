@@ -86,17 +86,17 @@ export function AnswerInput({
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
+    <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-6 shadow-sm">
       <div className="flex justify-between items-start mb-4">
         <h3 className="text-lg font-semibold flex-1">{questionText}</h3>
         {timeLeft !== undefined && (
           <span
             className={`text-sm font-bold px-3 py-1 rounded ${
               timeLeft > 10
-                ? "bg-green-100 text-green-800"
+                ? "bg-[var(--surface-muted)] text-[var(--success)] border border-[var(--success)]"
                 : timeLeft > 5
-                  ? "bg-yellow-100 text-yellow-800"
-                  : "bg-red-100 text-red-800"
+                  ? "bg-[var(--surface-muted)] text-[var(--warning)] border border-[var(--warning)]"
+                  : "bg-[var(--surface-muted)] text-[var(--danger)] border border-[var(--danger)]"
             }`}
           >
             {timeLeft}s
@@ -145,12 +145,12 @@ export function AnswerInput({
           <TaskInput metadata={metadata} value={answer} onChange={setAnswer} />
         )}
 
-        {error && <p className="text-red-600 text-sm">{error}</p>}
+        {error && <p className="text-[var(--danger)] text-sm">{error}</p>}
 
         {uploadProgress > 0 && uploadProgress < 100 && (
           <div className="w-full bg-gray-200 rounded-full h-2">
             <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+              className="bg-[var(--accent)] h-2 rounded-full transition-all duration-300"
               style={{ width: `${uploadProgress}%` }}
             />
           </div>
@@ -159,7 +159,7 @@ export function AnswerInput({
         <button
           type="submit"
           disabled={loading || answer === null || answer === ""}
-          className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
+          className="w-full px-4 py-3 bg-[var(--accent)] text-white rounded-lg hover:bg-[var(--accent-strong)] disabled:bg-[var(--surface-muted)] disabled:text-[var(--muted)] disabled:cursor-not-allowed font-medium"
         >
           {loading ? `Submitting${uploadProgress > 0 ? ` (${uploadProgress}%)` : "..."}` : "Submit Answer"}
         </button>

@@ -63,7 +63,7 @@ export async function POST(
         include: {
           rounds: {
             where: { id: { in: roundIds } },
-            include: { questions: true },
+            include: { questions: { orderBy: { questionIndex: "asc" } } },
           },
         },
       });
@@ -72,7 +72,7 @@ export async function POST(
         where: { id: gameId },
         include: {
           rounds: {
-            include: { questions: true },
+            include: { questions: { orderBy: { questionIndex: "asc" } } },
           },
         },
       });
@@ -122,7 +122,12 @@ export async function POST(
           },
         });
 
-        for (const srcQ of srcRound.questions) {
+        // Limit to 25 random questions from the source round to keep the Jeopardy board manageable
+        const shuffledQuestions = [...srcRound.questions].sort(() => 0.5 - Math.random());
+        const selectedQuestions = shuffledQuestions.slice(0, 25);
+
+        for (let i = 0; i < selectedQuestions.length; i++) {
+          const srcQ = selectedQuestions[i];
           await prisma.question.create({
             data: {
               roundId: newRound.id,
@@ -133,7 +138,7 @@ export async function POST(
               metadata: srcQ.metadata ?? undefined,
               pointsMax: srcQ.pointsMax,
               timeLimit: srcQ.timeLimit,
-              questionIndex: srcQ.questionIndex,
+              questionIndex: i, // Use the new index in the subset
             },
           });
         }
@@ -144,7 +149,7 @@ export async function POST(
         where: { id: gameId },
         include: {
           rounds: {
-            include: { questions: true },
+            include: { questions: { orderBy: { questionIndex: "asc" } } },
           },
         },
       });
@@ -190,9 +195,6 @@ export async function POST(
       metadata: q.metadata as Record<string, any> | undefined,
     }));
 
-    console.log(`[Start Game] Loading ${questionData.length} questions from round ${firstRound.roundNumber}`);
-    console.log(`[Start Game] First question:`, questionData[0]);
-
     const roundState = GameStateManager.startRound(
       gameId,
       firstRound.id,
@@ -201,16 +203,13 @@ export async function POST(
       questionData
     );
 
-    console.log(`[Start Game] Round state created with ${roundState.questions.length} questions`);
-    console.log(`[Start Game] Current question index: ${roundState.currentQuestionIndex}`);
-
     // Create checkpoint for game start
-    await GameStatePersistence.createCheckpoint(gameId, "ROUND_START");
+    await GameStatePersistence.createCheckpoint(gameId, "QUESTION_ACTIVE");
 
     return NextResponse.json(
       {
         success: true,
-        session: gameSession,
+        session: GameStateManager.sanitizeSessionForPlayer(gameSession, gameSession.hostId),
         firstRound: roundState,
         playerCount: Object.values(gameSession.players).filter((p) => p.isActive)
           .length,

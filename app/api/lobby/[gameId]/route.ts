@@ -55,7 +55,6 @@ export async function GET(
     
     // If in-memory players don't match database, sync from database
     if (players.length !== game.players.length) {
-      console.log(`[Lobby API] Syncing players: in-memory=${players.length}, database=${game.players.length}`);
       // Re-add all players from database
       game.players.forEach(dbPlayer => {
         const exists = players.find(p => p.id === dbPlayer.id);
@@ -66,11 +65,11 @@ export async function GET(
       players = GameStateManager.getPlayers(gameId);
     }
 
-    console.log(`[Lobby API] Returning ${players.length} players for lobby ${gameId}`);
+    const playerId = request.nextUrl.searchParams.get("playerId") || "";
 
     return NextResponse.json({
       success: true,
-      session,
+      session: GameStateManager.sanitizeSessionForPlayer(session, playerId),
       players,
       playerCount: players.length,
       gameCode: game.code,

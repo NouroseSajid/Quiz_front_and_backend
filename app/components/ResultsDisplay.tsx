@@ -34,12 +34,27 @@ export function ResultsDisplay({
   const correctCount = results.filter((r) => r.correct).length;
   const correctPercentage = results.length > 0 ? Math.round((correctCount / results.length) * 100) : 0;
 
+  const getOptionText = (value: any) => {
+    const options = (question.metadata?.options || []).map((opt: any) =>
+      typeof opt === "string" ? { text: opt } : opt
+    );
+
+    if (typeof value === "number") {
+      return options[value]?.text || `Option ${value}`;
+    }
+
+    if (typeof value === "string") {
+      return value;
+    }
+
+    return "Unknown";
+  };
+
   const getAnswerDisplay = (answer: any, questionType: string) => {
     if (answer === null || answer === undefined) return "No answer";
-    
+
     if (questionType === "MULTIPLE_CHOICE") {
-      const options = question.metadata?.options || [];
-      return options[answer] || `Option ${answer}`;
+      return getOptionText(answer);
     }
     if (questionType === "RANGE") {
       return String(answer);
@@ -61,10 +76,9 @@ export function ResultsDisplay({
 
   const getCorrectAnswerDisplay = (correct: any, questionType: string) => {
     if (correct === null || correct === undefined) return "N/A";
-    
+
     if (questionType === "MULTIPLE_CHOICE") {
-      const options = question.metadata?.options || [];
-      return options[correct] || `Option ${correct}`;
+      return getOptionText(correct);
     }
     if (questionType === "RANGE") {
       return String(correct);
@@ -78,26 +92,26 @@ export function ResultsDisplay({
   return (
     <div className="space-y-4">
       {/* Summary Stats */}
-      <div className="grid grid-cols-3 gap-3 bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg border border-blue-200">
+      <div className="grid grid-cols-3 gap-3 bg-[var(--surface)] p-4 rounded-xl border border-[var(--border)]">
         <div className="text-center">
-          <div className="text-2xl font-bold text-green-600">{correctCount}</div>
+          <div className="text-2xl font-bold text-[var(--success)]">{correctCount}</div>
           <div className="text-xs text-gray-600">Correct</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-red-600">{results.length - correctCount}</div>
+          <div className="text-2xl font-bold text-[var(--danger)]">{results.length - correctCount}</div>
           <div className="text-xs text-gray-600">Wrong</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-blue-600">{correctPercentage}%</div>
+          <div className="text-2xl font-bold text-[var(--accent)]">{correctPercentage}%</div>
           <div className="text-xs text-gray-600">Success Rate</div>
         </div>
       </div>
 
       {/* Correct Answer Display */}
       {!question.metadata?.taskType && (
-        <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded">
+        <div className="bg-[var(--surface)] border border-[var(--success)] p-4 rounded-xl">
           <p className="text-sm text-gray-600 mb-1">Correct Answer:</p>
-          <p className="text-lg font-bold text-green-700">
+          <p className="text-lg font-bold text-[var(--success)]">
             {getCorrectAnswerDisplay(question.correct, question.type)}
           </p>
         </div>
@@ -106,7 +120,7 @@ export function ResultsDisplay({
       {/* Toggle Details */}
       <button
         onClick={() => setShowDetails(!showDetails)}
-        className="w-full px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 font-medium text-sm"
+        className="w-full px-4 py-2 bg-[var(--surface-muted)] text-[var(--accent-strong)] rounded-lg hover:bg-[var(--surface)] font-medium text-sm border border-[var(--border)]"
       >
         {showDetails ? "Hide Player Results" : "Show Player Results"}
       </button>
@@ -117,10 +131,10 @@ export function ResultsDisplay({
           {sortedResults.map((result, idx) => (
             <div
               key={result.id}
-              className={`p-3 rounded-lg border-2 ${
+              className={`p-3 rounded-lg border ${
                 result.correct
-                  ? "bg-green-50 border-green-300"
-                  : "bg-red-50 border-red-300"
+                  ? "bg-[var(--surface)] border-[var(--success)]"
+                  : "bg-[var(--surface)] border-[var(--danger)]"
               }`}
             >
               <div className="flex justify-between items-start mb-1">
@@ -147,7 +161,7 @@ export function ResultsDisplay({
       )}
 
       {/* Summary Message */}
-      <div className="text-center text-sm text-gray-600 bg-gray-50 p-3 rounded">
+      <div className="text-center text-sm text-[var(--muted)] bg-[var(--surface)] border border-[var(--border)] p-3 rounded">
         {correctPercentage === 100 ? (
           <p>🎉 Everyone got it right!</p>
         ) : correctPercentage >= 50 ? (

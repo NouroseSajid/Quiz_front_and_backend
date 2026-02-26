@@ -40,37 +40,53 @@ export default function JoinPage() {
   }
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
-      <div className="w-full max-w-md p-8 bg-white shadow rounded">
-        <h2 className="text-2xl font-semibold mb-6 text-center">Join Lobby</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium">Your Name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="mt-1 block w-full rounded border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500"
-            />
+    <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
+      <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(242,107,76,0.14),_transparent_55%)] flex items-center justify-center px-6">
+        <div className="w-full max-w-md bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-7 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold">Join Lobby</h2>
+            <span className="text-xs text-[var(--muted)] rotate-1">quick and cozy</span>
           </div>
-          <div>
-            <label className="block text-sm font-medium">Game Code</label>
-            <input
-              type="text"
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              className="mt-1 block w-full rounded border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 uppercase"
-            />
-          </div>
-          {error && <p className="text-red-500 text-sm">{error}</p>}
+          <p className="text-sm text-[var(--muted)] mb-6">
+            Pop in the code and your name. We will handle the rest.
+          </p>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Your Name</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                placeholder="Ada, Sam, Noura..."
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Game Code</label>
+              <input
+                type="text"
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2 uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                placeholder="QUIZ7"
+              />
+            </div>
+            {error && <p className="text-[var(--danger)] text-sm">{error}</p>}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-2.5 px-4 rounded-xl bg-[var(--accent)] text-white font-semibold hover:bg-[var(--accent-strong)] disabled:opacity-50"
+            >
+              {loading ? "Joining..." : "Join"}
+            </button>
+          </form>
           <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2 px-4 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+            onClick={() => router.push("/")}
+            className="w-full mt-4 text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition"
           >
-            {loading ? "Joining..." : "Join"}
+            Back to Home
           </button>
-        </form>
+        </div>
       </div>
     </main>
   );

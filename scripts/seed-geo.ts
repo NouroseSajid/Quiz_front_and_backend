@@ -755,7 +755,7 @@ async function seedGeoQuestions() {
             scope: q.scope,
             tolerance: q.tolerance,
           },
-          pointsMax: 1000,
+          pointsMax: [100, 200, 300, 400, 500][(existingCount + addedCount) % 5],
           timeLimit: 60,
           questionIndex: existingCount + addedCount,
         },

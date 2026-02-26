@@ -152,7 +152,7 @@ export async function POST(
         playerToken: token,
         gameId: game.id,
         gameCode: game.code,
-        session: gameSession,
+        session: GameStateManager.sanitizeSessionForPlayer(gameSession, player.id),
         players,
         playerCount: players.length,
         message: `Joined lobby! Waiting for host to start...`,

@@ -192,7 +192,7 @@ export async function POST(
       {
         success: true,
         submitted: true,
-        session,
+        session: GameStateManager.sanitizeSessionForPlayer(session, playerId),
         message: "Answer submitted",
       },
       { status: 200 }

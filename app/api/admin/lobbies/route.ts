@@ -8,14 +8,9 @@ import { GameStateManager } from "@/lib/gameState";
  * List all games (for admin management), excluding the ADMIN question bank
  */
 export async function GET(request: NextRequest) {
-  console.log("[Admin Lobbies GET] Request received");
-  
   if (!(await isAdminFromRequest(request))) {
-    console.log("[Admin Lobbies GET] Auth failed");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  console.log("[Admin Lobbies GET] Auth passed");
 
   try {
     const games = await prisma.game.findMany({
@@ -23,8 +18,6 @@ export async function GET(request: NextRequest) {
       include: { players: true, session: true, rounds: { include: { questions: true } } },
       orderBy: { createdAt: "desc" },
     });
-
-    console.log(`[Admin Lobbies GET] Found ${games.length} games`);
 
     const lobbies = games.map((g) => {
       const activePlayers = g.players.filter((p) => p.isActive);
@@ -51,7 +44,6 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    console.log(`[Admin Lobbies GET] Returning ${lobbies.length} lobbies`);
     return NextResponse.json({ success: true, lobbies });
   } catch (error) {
     console.error("[Admin] Failed to fetch lobbies:", error);

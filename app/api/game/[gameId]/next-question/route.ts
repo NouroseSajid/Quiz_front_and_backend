@@ -2,17 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { GameStateManager } from "@/lib/gameState";
 import { GameStatePersistence } from "@/lib/gameStatePersistence";
 import { prisma } from "@/lib/prisma";
-import { verifyPlayerToken } from "@/lib/playerAuth";
+import { verifyHost } from "@/lib/playerAuth";
 
 /**
  * POST /api/game/[gameId]/next-question
  * 
- * Move to next question (host only)
+ * Move to next question or specific question (host only)
  * 
  * Body:
  * {
  *   playerId: string (host),
- *   playerToken: string
+ *   playerToken: string,
+ *   targetQuestionIndex?: number (optional, to jump to specific question)
  * }
  * 
  * Response:
@@ -29,7 +30,7 @@ export async function POST(
   try {
     const { gameId } = await context.params;
     const body = await request.json();
-    const { playerId, playerToken } = body;
+    const { playerId, playerToken, targetQuestionIndex } = body;
 
     if (!playerId || !playerToken) {
       return NextResponse.json(
@@ -51,22 +52,10 @@ export async function POST(
       }
     }
 
-    // Verify host
-    const host: any = await prisma.player.findUnique({
-      where: { id: playerId },
-    });
-
-    if (!host || !host.isHost || host.gameId !== gameId) {
+    if (!(await verifyHost(prisma, gameId, playerId, playerToken))) {
       return NextResponse.json(
         { error: "Only host can advance questions" },
         { status: 403 }
-      );
-    }
-
-    if (!verifyPlayerToken(playerToken, host.authSalt, host.authHash)) {
-      return NextResponse.json(
-        { error: "Invalid player token" },
-        { status: 401 }
       );
     }
 
@@ -79,13 +68,6 @@ export async function POST(
       );
     }
 
-    if (activeSession.hostId !== playerId) {
-      return NextResponse.json(
-        { error: "Only host can advance questions" },
-        { status: 403 }
-      );
-    }
-
     const currentRound = activeSession.rounds[activeSession.currentRoundIndex];
     if (!currentRound) {
       return NextResponse.json(
@@ -94,31 +76,49 @@ export async function POST(
       );
     }
 
-    // Check if we can move to next question
-    if (
-      currentRound.currentQuestionIndex >=
-      currentRound.questions.length - 1
-    ) {
+    // Validate target question index if provided
+    if (targetQuestionIndex !== undefined) {
+      if (typeof targetQuestionIndex !== "number" || targetQuestionIndex < 0 || targetQuestionIndex >= currentRound.questions.length) {
+        return NextResponse.json(
+          { error: "Invalid target question index" },
+          { status: 400 }
+        );
+      }
+    } else {
+      // Check if we can move to next question (default behavior)
+      if (currentRound.currentQuestionIndex >= currentRound.questions.length - 1) {
+        return NextResponse.json(
+          { error: "No more questions in this round" },
+          { status: 400 }
+        );
+      }
+    }
+
+    GameStateManager.nextQuestion(gameId, targetQuestionIndex);
+
+    // Persist BEFORE returning to ensure consistency
+    await GameStatePersistence.createCheckpoint(gameId, "QUESTION_ACTIVE");
+
+    // Get updated session after persistence
+    const updatedSession = GameStateManager.getSession(gameId);
+    if (!updatedSession) {
       return NextResponse.json(
-        { error: "No more questions in this round" },
-        { status: 400 }
+        { error: "Session lost after question advance" },
+        { status: 500 }
       );
     }
 
-    GameStateManager.nextQuestion(gameId);
-
+    const updatedRound = updatedSession.rounds[updatedSession.currentRoundIndex];
     const nextQuestion =
-      currentRound.questions[currentRound.currentQuestionIndex];
-
-    await GameStatePersistence.createCheckpoint(gameId, "QUESTION_ACTIVE");
+      updatedRound.questions[updatedRound.currentQuestionIndex];
 
     return NextResponse.json(
       {
         success: true,
-        session: activeSession,
+        session: updatedSession,
         question: nextQuestion,
-        currentQuestionIndex: currentRound.currentQuestionIndex,
-        totalQuestions: currentRound.questions.length,
+        currentQuestionIndex: updatedRound.currentQuestionIndex,
+        totalQuestions: updatedRound.questions.length,
       },
       { status: 200 }
     );

@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { AnswerInput } from "@/app/components/AnswerInput";
 import { ResultsDisplay } from "@/app/components/ResultsDisplay";
 import { useGameTimer } from "@/lib/useGameTimer";
+import { useSocket } from "@/lib/useSocket";
 
 interface Player {
   id: string;
@@ -32,6 +33,14 @@ export default function GamePage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
+  const isHost = !!(session && playerId && playerId === session.hostId);
+  const isGameEnd = session?.checkpoint === "GAME_END";
+
+  // Initialize Socket.io
+  const { connected: socketConnected } = useSocket(gameId, () => {
+    fetchState();
+  });
+
   // Get current round and question
   const currentRound = session?.rounds[session?.currentRoundIndex];
   const currentQuestion = currentRound?.questions?.[currentRound?.currentQuestionIndex];
@@ -40,6 +49,7 @@ export default function GamePage() {
   useEffect(() => {
     if (session) {
       console.log('[Game Page] Session:', {
+        socketConnected,
         rounds: session.rounds?.length,
         currentRoundIndex: session.currentRoundIndex,
         currentRound: currentRound ? {
@@ -54,15 +64,19 @@ export default function GamePage() {
         } : 'none',
       });
     }
-  }, [session, currentRound, currentQuestion]);
+  }, [session, currentRound, currentQuestion, socketConnected]);
 
   // Use the custom timer hook
   const { timeLeft } = useGameTimer(
-    currentQuestion?.startedAt ? new Date(currentQuestion.startedAt) : new Date(),
+    currentQuestion?.startedAt ? new Date(currentQuestion.startedAt) : null,
     currentQuestion?.timeLimit || 30,
     async () => {
-      // Auto-reveal when timer hits 0 (only if not already revealed)
-      if (!playerId || !playerToken || !gameId || currentQuestion?.revealed) return;
+      // ONLY the host should trigger auto-reveal. 
+      // Players just wait for the host to call reveal.
+      const isHost = session && playerId && playerId === session.hostId;
+      if (!isHost) return;
+
+      if (!playerId || !playerToken || !gameId || !currentQuestion || currentQuestion?.revealed) return;
       try {
         const round = session?.rounds[session?.currentRoundIndex];
         const question = round?.questions?.[round?.currentQuestionIndex];
@@ -93,7 +107,7 @@ export default function GamePage() {
 
   async function fetchState() {
     try {
-      const res = await fetch(`/api/lobby/${gameId}`);
+      const res = await fetch(`/api/lobby/${gameId}?playerId=${playerId || ""}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
       setSession(data.session);
@@ -103,6 +117,18 @@ export default function GamePage() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (isHost) {
+      router.push(`/game/${gameId}/host`);
+    }
+  }, [isHost, router, gameId]);
+
+  useEffect(() => {
+    if (isGameEnd) {
+      router.push(`/game/${gameId}/results`);
+    }
+  }, [isGameEnd, router, gameId]);
 
   async function submitAnswer(answer: any) {
     if (!playerId || !playerToken) return;
@@ -131,20 +157,7 @@ export default function GamePage() {
   if (loading) return <p className="p-4">Loading...</p>;
   if (!session) return <p className="p-4">No session found</p>;
 
-  // Redirect host to host page
-  if (session && playerId && playerId === session.hostId) {
-    // Don't render, redirect instead
-    useEffect(() => {
-      router.push(`/game/${gameId}/host`);
-    }, []);
-    return null;
-  }
-
-  // Navigate to results page when game ends
-  if (session.checkpoint === "GAME_END") {
-    useEffect(() => {
-      router.push(`/game/${gameId}/results`);
-    }, []);
+  if (isHost || isGameEnd) {
     return null;
   }
 
@@ -155,29 +168,29 @@ export default function GamePage() {
     : Object.values(session.players || {});
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+    <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)] p-4">
       <div className="max-w-2xl mx-auto space-y-4">
         {/* Header */}
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 shadow-sm">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Quiz Game</h1>
-              <p className="text-sm text-gray-600">
+              <h1 className="text-2xl font-bold">Quiz Game</h1>
+              <p className="text-sm text-[var(--muted)]">
                 Round {session.currentRoundIndex + 1} • {round?.category || "Loading"}
               </p>
             </div>
             <div className="text-right">
-              <p className="text-3xl font-bold text-blue-600">
+              <p className="text-3xl font-bold text-[var(--accent)]">
                 {playerList.find((p) => p.id === playerId)?.score || 0}
               </p>
-              <p className="text-xs text-gray-600">Your Score</p>
+              <p className="text-xs text-[var(--muted)]">Your Score</p>
             </div>
           </div>
         </div>
 
         {/* Main Content */}
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 p-4 rounded-lg">
+          <div className="bg-[var(--surface)] border border-[var(--danger)] text-[var(--danger)] p-4 rounded-lg">
             {error}
           </div>
         )}
@@ -188,16 +201,22 @@ export default function GamePage() {
               <ResultsDisplay
                 question={question}
                 players={playerList}
-                results={Object.entries(question.answers).map(([playerId, answer]) => {
-                  const player = playerList.find((p) => p.id === playerId);
-                  const isCorrect = JSON.stringify(answer) === JSON.stringify(question.correct);
+                results={Object.entries(question.answers || {}).map(([pid, answer]) => {
+                  const player = playerList.find((p) => p.id === pid);
+                  // Use the point values already present in the question state if they exist
+                  // otherwise fallback to calculated points
+                  const pointsEarned = (question as any).results?.[pid] ?? (player?.currentAnswer?.pointsEarned || 0);
+                  const isCorrect = pointsEarned > 0;
+                  
                   return {
-                    id: playerId,
+                    id: pid,
                     name: player?.name || "Unknown",
                     answer,
                     correct: isCorrect,
-                    pointsEarned: isCorrect ? question.pointsMax : 0,
-                    timeMs: 0,
+                    pointsEarned: pointsEarned,
+                    timeMs: (player as any).answerSubmittedAt && question.startedAt 
+                      ? new Date((player as any).answerSubmittedAt).getTime() - new Date(question.startedAt).getTime() 
+                      : 0,
                   };
                 })}
                 isHost={playerId === session.hostId}
@@ -216,18 +235,18 @@ export default function GamePage() {
             )}
           </>
         ) : (
-          <div className="bg-white rounded-lg shadow p-6 text-center">
-            <p className="text-lg text-gray-600 mb-2">Waiting for next question...</p>
+          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-6 text-center">
+            <p className="text-lg text-[var(--muted)] mb-2">Waiting for next question...</p>
             <div className="animate-pulse flex justify-center gap-1">
-              <div className="h-2 w-2 bg-blue-600 rounded-full"></div>
-              <div className="h-2 w-2 bg-blue-600 rounded-full"></div>
-              <div className="h-2 w-2 bg-blue-600 rounded-full"></div>
+              <div className="h-2 w-2 bg-[var(--accent)] rounded-full"></div>
+              <div className="h-2 w-2 bg-[var(--accent)] rounded-full"></div>
+              <div className="h-2 w-2 bg-[var(--accent)] rounded-full"></div>
             </div>
           </div>
         )}
 
         {/* Leaderboard */}
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 shadow-sm">
           <h3 className="font-bold text-lg mb-3">Leaderboard</h3>
           <div className="space-y-2">
             {playerList
@@ -238,12 +257,14 @@ export default function GamePage() {
               .map((p, idx) => (
                 <div
                   key={p.id}
-                  className={`flex items-center justify-between p-3 rounded-lg ${
-                    p.id === playerId ? "bg-blue-100 border-2 border-blue-500" : "bg-gray-50"
+                  className={`flex items-center justify-between p-3 rounded-xl border ${
+                    p.id === playerId
+                      ? "bg-[var(--surface-muted)] border-[var(--accent)]"
+                      : "bg-[var(--surface)] border-[var(--border)]"
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <span className="font-bold text-gray-600 min-w-6">
+                    <span className="font-bold text-[var(--muted)] min-w-6">
                       {idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `#${idx + 1}`}
                     </span>
                     <span className={p.id === playerId ? "font-bold" : ""}>

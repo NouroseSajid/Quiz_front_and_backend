@@ -598,7 +598,7 @@ async function seedMCQQuestions() {
           metadata: {
             options: q.options,
           },
-          pointsMax: 1000,
+          pointsMax: [100, 200, 300, 400, 500][(existingCount + addedCount) % 5],
           timeLimit: 30,
           questionIndex: existingCount + addedCount,
         },

@@ -82,7 +82,7 @@ export async function POST(
     return NextResponse.json(
       {
         success: true,
-        session,
+        session: GameStateManager.sanitizeSessionForPlayer(session, playerId),
       },
       { status: 200 }
     );

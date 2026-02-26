@@ -29,10 +29,11 @@ export interface QuestionState {
   type: string;
   timeLimit: number;
   pointsMax: number;
-  startedAt: Date;
+  startedAt?: Date;
   endedAt?: Date;
   revealed: boolean;
   answers: Record<string, any>; // playerId -> answer
+  results?: Record<string, number>; // playerId -> pointsEarned
   metadata?: Record<string, any>; // MCQ options, RANGE min/max, GEO scope, etc
 }
 
@@ -59,8 +60,18 @@ export interface GameStateSnapshot {
   checkpoint: "LOBBY" | "ROUND_START" | "QUESTION_ACTIVE" | "QUESTION_RESULTS" | "ROUND_RESULTS" | "GAME_END";
 }
 
+import { getIO } from "./socket";
+
 // Singleton instance to store all active sessions
 const activeSessions = new Map<string, GameStateSnapshot>();
+
+function broadcastUpdate(gameId: string, event: string = "game-updated") {
+  const io = getIO();
+  if (io) {
+    io.to(`game-${gameId}`).emit(event, { gameId, timestamp: Date.now() });
+    console.log(`[Socket] Broadcasted ${event} to game-${gameId}`);
+  }
+}
 
 export class GameStateManager {
   /**
@@ -123,7 +134,7 @@ export class GameStateManager {
     session.players[playerId] = player;
     session.updatedAt = new Date();
 
-    console.log(`[GameState] Added player ${name} (${playerId}) to session ${gameId}. Total players: ${Object.keys(session.players).length}`);
+    broadcastUpdate(gameId, "player-joined");
 
     return player;
   }
@@ -147,11 +158,9 @@ export class GameStateManager {
   static getPlayers(gameId: string): PlayerState[] {
     const session = activeSessions.get(gameId);
     if (!session) {
-      console.log(`[GameState] getPlayers called but no session found for ${gameId}`);
       return [];
     }
     const playerArray = Object.values(session.players);
-    console.log(`[GameState] getPlayers returning ${playerArray.length} players for ${gameId}`);
     return playerArray;
   }
 
@@ -217,7 +226,7 @@ export class GameStateManager {
         timeLimit: q.timeLimit,
         pointsMax: q.pointsMax,
         metadata: q.metadata,
-        startedAt: new Date(),
+        startedAt: idx === 0 ? new Date() : undefined,
         revealed: false,
         answers: {},
       })),
@@ -238,20 +247,30 @@ export class GameStateManager {
       }
     });
 
+    broadcastUpdate(gameId, "game-started");
+
     return round;
   }
 
   /**
    * Move to next question
    */
-  static nextQuestion(gameId: string): void {
+  static nextQuestion(gameId: string, targetIndex?: number): void {
     const session = activeSessions.get(gameId);
     if (!session) throw new Error(`Session not found: ${gameId}`);
 
     const currentRound = session.rounds[session.currentRoundIndex];
     if (!currentRound) throw new Error("No active round");
 
-    currentRound.currentQuestionIndex += 1;
+    // If targetIndex provided, move to that specific question; otherwise increment
+    if (targetIndex !== undefined) {
+      if (targetIndex < 0 || targetIndex >= currentRound.questions.length) {
+        throw new Error("Invalid question index");
+      }
+      currentRound.currentQuestionIndex = targetIndex;
+    } else {
+      currentRound.currentQuestionIndex += 1;
+    }
 
     const nextQuestion =
       currentRound.questions[currentRound.currentQuestionIndex];
@@ -259,9 +278,10 @@ export class GameStateManager {
       nextQuestion.startedAt = new Date();
       nextQuestion.revealed = false;
       nextQuestion.answers = {};
+      nextQuestion.endedAt = undefined;
     }
 
-    // Reset player answers for new question
+    // Reset all player states for new question
     Object.values(session.players).forEach((player) => {
       if (player.isActive) {
         player.currentAnswer = undefined;
@@ -271,6 +291,8 @@ export class GameStateManager {
 
     session.checkpoint = "QUESTION_ACTIVE";
     session.updatedAt = new Date();
+    
+    broadcastUpdate(gameId);
   }
 
   /**
@@ -291,6 +313,8 @@ export class GameStateManager {
     currentQuestion.endedAt = new Date();
     session.checkpoint = "QUESTION_RESULTS";
     session.updatedAt = new Date();
+
+    broadcastUpdate(gameId);
   }
 
   /**
@@ -306,6 +330,8 @@ export class GameStateManager {
     currentRound.status = "COMPLETE";
     session.checkpoint = "ROUND_RESULTS";
     session.updatedAt = new Date();
+
+    broadcastUpdate(gameId);
   }
 
   /**
@@ -318,6 +344,8 @@ export class GameStateManager {
     session.status = "COMPLETED";
     session.checkpoint = "GAME_END";
     session.updatedAt = new Date();
+
+    broadcastUpdate(gameId);
   }
 
   /**
@@ -336,6 +364,8 @@ export class GameStateManager {
 
     player.score += pointsEarned;
     session.updatedAt = new Date();
+
+    broadcastUpdate(gameId);
   }
 
   /**
@@ -429,5 +459,48 @@ export class GameStateManager {
       player.lastSeen = new Date();
       session.updatedAt = new Date();
     }
+  }
+
+  /**
+   * Sanitize a session snapshot for a specific player to prevent cheating
+   */
+  static sanitizeSessionForPlayer(
+    session: GameStateSnapshot,
+    requestingPlayerId: string
+  ): any {
+    const isHost = session.hostId === requestingPlayerId;
+    
+    // Deep clone the session to avoid modifying the original in-memory state
+    const sanitized = JSON.parse(JSON.stringify(session));
+
+    // If host, they get the full state (they need it to control the game)
+    if (isHost) return sanitized;
+
+    // For players, we must mask sensitive information
+    sanitized.rounds.forEach((round: any) => {
+      round.questions.forEach((question: any) => {
+        // If question is not revealed, hide the "correct" answer
+        if (!question.revealed) {
+          delete question.correct;
+          
+          // Hide what other people answered, but keep the status (that they DID answer)
+          if (question.answers) {
+            const maskedAnswers: Record<string, any> = {};
+            Object.keys(question.answers).forEach((pid) => {
+              if (pid === requestingPlayerId) {
+                // You can see your own answer
+                maskedAnswers[pid] = question.answers[pid];
+              } else {
+                // For others, you only see a boolean status
+                maskedAnswers[pid] = { submitted: true };
+              }
+            });
+            question.answers = maskedAnswers;
+          }
+        }
+      });
+    });
+
+    return sanitized;
   }
 }

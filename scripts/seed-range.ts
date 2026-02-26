@@ -758,7 +758,7 @@ async function seedRangeQuestions() {
             max: q.max,
             tolerance: q.tolerance,
           },
-          pointsMax: 1000,
+          pointsMax: [100, 200, 300, 400, 500][(existingCount + addedCount) % 5],
           timeLimit: 45,
           questionIndex: existingCount + addedCount,
         },

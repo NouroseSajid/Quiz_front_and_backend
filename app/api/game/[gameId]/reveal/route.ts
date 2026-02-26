@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { GameStateManager } from "@/lib/gameState";
 import { GameStatePersistence } from "@/lib/gameStatePersistence";
 import { prisma } from "@/lib/prisma";
-import { verifyPlayerToken } from "@/lib/playerAuth";
+import { verifyHost } from "@/lib/playerAuth";
 import { loadScoreWasm, calculateGeoScore, calculateFinalScore, rankingError, computeVotingAccuracy } from "@/lib/scoreWasm";
 
 /**
@@ -53,26 +53,7 @@ export async function POST(
       }
     }
 
-    // Verify host
-    const host: any = await prisma.player.findUnique({
-      where: { id: playerId },
-    });
-
-    if (!host || !host.isHost || host.gameId !== gameId) {
-      return NextResponse.json(
-        { error: "Only host can reveal answers" },
-        { status: 403 }
-      );
-    }
-
-    if (!verifyPlayerToken(playerToken, host.authSalt, host.authHash)) {
-      return NextResponse.json(
-        { error: "Invalid player token" },
-        { status: 401 }
-      );
-    }
-
-    if (session.hostId !== playerId) {
+    if (!(await verifyHost(prisma, gameId, playerId, playerToken))) {
       return NextResponse.json(
         { error: "Only host can reveal answers" },
         { status: 403 }
@@ -99,10 +80,24 @@ export async function POST(
     // Reveal the question
     GameStateManager.revealQuestion(gameId);
 
-    // Apply scoring if provided
+    // Prepare results map
+    const finalResults: Record<string, number> = {};
+
+    // Load WASM for enhanced scoring calculations
+    let wasmLoaded = false;
+    try {
+      await loadScoreWasm();
+      wasmLoaded = true;
+      console.log("[Game] WASM scoring engine loaded for question reveal");
+    } catch (err) {
+      console.warn("[Game] WASM scoring failed to load", err);
+    }
+
+    // Apply scoring if provided by host
     if (results && Array.isArray(results)) {
       for (const result of results) {
         if (result.playerId && result.pointsEarned !== undefined) {
+          finalResults[result.playerId] = result.pointsEarned;
           GameStateManager.updatePlayerScore(
             gameId,
             result.playerId,
@@ -110,17 +105,36 @@ export async function POST(
           );
         }
       }
+    } else {
+      // Auto-calculate for all players
+      const answers = currentQuestion.answers || {};
+      for (const [pid, answer] of Object.entries(answers)) {
+        let points = 0;
+        
+        // Use WASM for complex scoring if available
+        if (wasmLoaded && currentQuestion.type === "GEO") {
+          const correct = currentQuestion.correct as any;
+          points = await calculateGeoScore(
+            answer.lat, answer.lng,
+            correct.lat, correct.lng,
+            currentQuestion.metadata?.radius || 500,
+            currentQuestion.pointsMax,
+            0, // For reveal we don't necessarily have time here, or could use stored time
+            currentQuestion.timeLimit
+          );
+        } else if (JSON.stringify(answer) === JSON.stringify(currentQuestion.correct)) {
+          points = currentQuestion.pointsMax;
+        }
+
+        if (points > 0) {
+          finalResults[pid] = Math.round(points);
+          GameStateManager.updatePlayerScore(gameId, pid, Math.round(points));
+        }
+      }
     }
 
-    // Load WASM for enhanced scoring calculations (if available)
-    try {
-      await loadScoreWasm();
-      // WASM functions are now available for geo-scoring, ranking, voting accuracy
-      // The scoring system uses both automatic (WASM) and manual (results) scoring modes
-      console.log("[Game] WASM scoring engine loaded for question reveal");
-    } catch (err) {
-      console.warn("[Game] WASM scoring skipped, using standard scoring", err);
-    }
+    // Attach results to question for client-side display
+    currentQuestion.results = finalResults;
 
     await GameStatePersistence.createCheckpoint(gameId, "QUESTION_RESULTS");
 

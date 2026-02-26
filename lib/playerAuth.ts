@@ -28,3 +28,40 @@ function safeEqual(a: string, b: string) {
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
+
+/**
+ * Verify if a playerId and playerToken are authorized as a host for a specific game
+ */
+export async function verifyHost(
+  prisma: any,
+  gameId: string,
+  playerId: string,
+  playerToken: string
+): Promise<boolean> {
+  if (!gameId || !playerId || !playerToken) return false;
+
+  // 1. Try verifying as a Player who has isHost=true
+  const host: any = await prisma.player.findUnique({
+    where: { id: playerId },
+  });
+
+  if (host && host.isHost && host.gameId === gameId) {
+    if (verifyPlayerToken(playerToken, host.authSalt, host.authHash)) {
+      return true;
+    }
+  }
+
+  // 2. Fallback: Verify as Session Host (admins who created game but didn't join)
+  const dbSession = await prisma.session.findUnique({
+    where: { gameId },
+  });
+
+  if (dbSession && dbSession.hostId === playerId) {
+    // For admin hosts, we use the simple token defined in create-game
+    if (playerToken === `host-token-${playerId}`) {
+      return true;
+    }
+  }
+
+  return false;
+}

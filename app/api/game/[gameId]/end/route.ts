@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { GameStateManager } from "@/lib/gameState";
 import { GameStatePersistence } from "@/lib/gameStatePersistence";
 import { prisma } from "@/lib/prisma";
-import { verifyPlayerToken } from "@/lib/playerAuth";
+import { verifyHost } from "@/lib/playerAuth";
 
 /**
  * POST /api/game/[gameId]/end
@@ -39,6 +39,13 @@ export async function POST(
       );
     }
 
+    if (!(await verifyHost(prisma, gameId, playerId, playerToken))) {
+      return NextResponse.json(
+        { error: "Only host can end the game" },
+        { status: 403 }
+      );
+    }
+
     let session = GameStateManager.getSession(gameId);
     if (!session) {
       // Try to recover session
@@ -50,32 +57,6 @@ export async function POST(
           { status: 404 }
         );
       }
-    }
-
-    // Verify host
-    const host: any = await prisma.player.findUnique({
-      where: { id: playerId },
-    });
-
-    if (!host || !host.isHost || host.gameId !== gameId) {
-      return NextResponse.json(
-        { error: "Only host can end the game" },
-        { status: 403 }
-      );
-    }
-
-    if (!verifyPlayerToken(playerToken, host.authSalt, host.authHash)) {
-      return NextResponse.json(
-        { error: "Invalid player token" },
-        { status: 401 }
-      );
-    }
-
-    if (session.hostId !== playerId) {
-      return NextResponse.json(
-        { error: "Only host can end the game" },
-        { status: 403 }
-      );
     }
 
     // End the game in memory
